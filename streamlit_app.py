@@ -25,7 +25,7 @@ ICVI_ADM2 = {
     "Yogyakarta (DIY)":         Path("data/DIY_icvi_results.csv"),
 }
 
-# ---------- Region metadata (your centers/zooms) ----------
+# ---------- Region metadata (centers/zooms) ----------
 REGIONS = {
     "Indonesia": {
         "level": "ADM1",
@@ -34,17 +34,17 @@ REGIONS = {
     },
     "East Nusa Tenggara (NTT)": {
         "level": "ADM2",
-        "center": [-9.367410, 122.213088],  # NTT
+        "center": [-9.367410, 122.213088],
         "zoom": 7,
     },
     "North Sulawesi (Sulut)": {
         "level": "ADM2",
-        "center": [2.651467, 125.414369],   # North Sulawesi
+        "center": [2.651467, 125.414369],
         "zoom": 7,
     },
     "Yogyakarta (DIY)": {
         "level": "ADM2",
-        "center": [-7.887551, 110.429646],  # Yogyakarta
+        "center": [-7.887551, 110.429646],
         "zoom": 10,
     },
 }
@@ -189,8 +189,8 @@ with st.spinner("Loading boundaries..."):
 region = st.selectbox("Region", list(REGIONS.keys()), index=0)  # default: Indonesia
 mode = st.radio("Mode", ["Average", "Yearly"], horizontal=True, index=0)  # Average default
 
-# We'll render the map into this placeholder, showing progress first
-map_placeholder = st.empty()
+# Containers for progress + map
+map_container = st.empty()
 progress = st.progress(0, text="Loading data...")
 
 # ---------- Load ICVI for selected region ----------
@@ -201,11 +201,13 @@ level = meta["level"]
 with st.spinner("Loading ICVI data..."):
     if region == "Indonesia":
         if not ICVI_PROV_CSV.exists():
+            progress.empty()
             st.error(f"ICVI CSV not found: {ICVI_PROV_CSV.resolve()}"); st.stop()
         df = load_csv(ICVI_PROV_CSV)
     else:
         path = ICVI_ADM2[region]
         if not path.exists():
+            progress.empty()
             st.error(f"ICVI CSV not found: {path.resolve()}"); st.stop()
         df = load_csv(path)
 
@@ -216,6 +218,7 @@ name_col = detect_name_col(df, level)
 # Year control only for Yearly mode
 if mode == "Yearly":
     if "year" not in df.columns or df["year"].isna().all():
+        progress.empty()
         st.error("This dataset has no usable 'year' column for Yearly mode."); st.stop()
     years = sorted([int(y) for y in df["year"].dropna().unique()])
     year = st.slider("Year", min_value=min(years), max_value=max(years), value=max(years), step=1)
@@ -314,13 +317,14 @@ folium.GeoJson(
 folium.LayerControl(collapsed=False).add_to(m)
 
 # ---------- Render (disable reruns on click) ----------
-map_placeholder.st_folium(
-    m,
-    use_container_width=True,
-    height=640,
-    key="mainmap",
-    returned_objects=[],  # <- disables callbacks so clicks won't rerun the app
-)
+with map_container.container():
+    st_folium(
+        m,
+        use_container_width=True,
+        height=640,
+        key="mainmap",
+        returned_objects=[],  # disables callbacks so clicks won't rerun the app
+    )
 
 progress.progress(100, text="Done")
 progress.empty()
