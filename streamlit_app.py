@@ -31,11 +31,13 @@ indo = gaul.filter(ee.Filter.eq("gaul0_name", "Indonesia"))
 m.addLayer(indo, {}, "Indonesia Provinces")
 
 # show the province name on hover with a GeoJson tooltip
+geojson = geemap.ee_to_geojson(indo)
 folium.GeoJson(
-    indo,
+    geojson,
     name="Indonesia Provinces",
     tooltip=folium.GeoJsonTooltip(fields=["gaul1_name"], aliases=["Province:"])
 ).add_to(m)
+
 
 
 # Display map in Streamlit
