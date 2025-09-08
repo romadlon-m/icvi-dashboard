@@ -1,55 +1,26 @@
 import streamlit as st
 import geopandas as gpd
-import pandas as pd
 import plotly.express as px
-import numpy as np
-from matplotlib import cm, colors as mcolors
 import json
 
-# ----------------------------------------------------
-# Custom color palette
-# ----------------------------------------------------
-def set_palette(name="viridis", low=0, high=1, n=5):
-    cmap = cm.get_cmap(name)
-    cols = cmap(np.linspace(low, high, n))
-    return [mcolors.to_hex(c) for c in cols]
+st.title("Check Province Boundaries")
 
-palette = set_palette("viridis", low=0, high=1, n=5)
-
-# ----------------------------------------------------
-# Load data
-# ----------------------------------------------------
+# Load only provinces GeoJSON
 gdf = gpd.read_file("data/geoBoundaries-IDN-ADM1_simplified.geojson")
-df = pd.read_csv("data/icvi_results.csv")
 
-# ----------------------------------------------------
-# Streamlit UI
-# ----------------------------------------------------
-st.title("ICVI Dashboard")
-st.subheader("Indonesia Provinces - ICVI Map")
+# Convert to proper GeoJSON
+geojson_data = json.loads(gdf.to_json())
 
-# Year slider
-year = st.slider("Select Year", int(df["year"].min()), int(df["year"].max()), int(df["year"].max()))
-df_year = df[df["year"] == year]
+# Choropleth with dummy color (all provinces shown)
+gdf["dummy"] = 1
 
-# Merge by province name (adjust column names as needed)
-merged = gdf.merge(df_year, left_on="shapeName", right_on="province")
-
-# Convert merged GeoDataFrame to GeoJSON
-geojson_data = json.loads(merged.to_json())
-
-# ----------------------------------------------------
-# Plotly Choropleth
-# ----------------------------------------------------
 fig = px.choropleth(
-    merged,
+    gdf,
     geojson=geojson_data,
-    locations=merged.index,
-    color="ICVI",
-    hover_name="province",
-    projection="mercator",
-    color_continuous_scale=palette,
-    range_color=[0.15, 0.63]  # fixed ICVI scale
+    locations=gdf.index,
+    color="dummy",
+    hover_name="shapeName",
+    projection="mercator"
 )
 
 fig.update_geos(fitbounds="locations", visible=False)
