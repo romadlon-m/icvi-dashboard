@@ -29,6 +29,18 @@ folium.GeoJson(
     tooltip=folium.GeoJsonTooltip(fields=["shapeName"], aliases=["Province:"])
 ).add_to(m)
 
+# Hide focus outline box on click (Leaflet default behavior)
+st.markdown(
+    """
+    <style>
+    .leaflet-container:focus {
+        outline: none;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 
 # Add layer control
 folium.LayerControl().add_to(m)
