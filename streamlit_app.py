@@ -1,7 +1,5 @@
 import streamlit as st
 import ee
-import json
-import os
 from google.oauth2 import service_account
 import geemap.foliumap as geemap
 
@@ -9,7 +7,8 @@ import geemap.foliumap as geemap
 # Earth Engine Authentication
 # ----------------------------------------------------
 # Load credentials from Streamlit secrets
-service_account_info = json.loads(os.environ["GEE_KEY"])
+service_account_info = st.secrets["GEE_KEY"]
+
 credentials = service_account.Credentials.from_service_account_info(service_account_info)
 scoped_credentials = credentials.with_scopes(['https://www.googleapis.com/auth/earthengine'])
 ee.Initialize(scoped_credentials)
