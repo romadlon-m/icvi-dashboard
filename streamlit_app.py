@@ -4,27 +4,38 @@ from pathlib import Path
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import folium
 from streamlit_folium import st_folium
 from branca.element import MacroElement, Template
-from branca.colormap import linear
+from branca.colormap import LinearColormap
 
-# ---------- Config ----------
+# ---------------- Config ----------------
 st.set_page_config(page_title="ICVI Dashboard", layout="wide")
 st.title("Indonesia ICVI — Provinces (ADM1)")
 
-# Fixed color scale (as you specified earlier)
 ICVI_MIN = 0.15
 ICVI_MAX = 0.63
 
 GEOJSON_PATH = Path("data/geoBoundaries-IDN-ADM1_simplified.geojson")
-ICVI_CSV = Path("data/icvi_results.csv")
+ICVI_CSV     = Path("data/icvi_results.csv")
 
-# ---------- Helpers ----------
+# ---------------- Palette (your function) ----------------
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+
+def set_palette(name="viridis", low=0.15, high=0.80, n=5):
+    cmap = cm.get_cmap(name)
+    cols = cmap(np.linspace(low, high, n))
+    return [mcolors.to_hex(c) for c in cols]
+
+# smooth gradient (256 steps) across full Viridis range
+PALETTE = set_palette("viridis", low=0.0, high=1.0, n=256)
+
+# ---------------- Helpers ----------------
 @st.cache_data
 def load_icvi(csv_path: Path) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
-    # Basic checks / cleaning
     df.columns = [c.strip() for c in df.columns]
     df["province"] = df["province"].astype(str).str.strip()
     df["year"] = df["year"].astype(int)
@@ -34,15 +45,12 @@ def load_icvi(csv_path: Path) -> pd.DataFrame:
 @st.cache_data
 def load_geojson(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as f:
-        gj = json.load(f)
-    return gj
+        return json.load(f)
 
 def norm_name(name: str) -> str:
-    """Normalize province names for matching."""
     if not isinstance(name, str):
         return ""
     n = name.strip().lower()
-    # Light harmonization (extend as needed)
     replacements = {
         "dki jakarta": "jakarta",
         "jakarta capital region": "jakarta",
@@ -50,21 +58,17 @@ def norm_name(name: str) -> str:
         "special region of yogyakarta": "yogyakarta",
         "bangka-belitung islands": "bangka belitung",
         "bangka belitung islands": "bangka belitung",
-        "riau islands": "kepulauan riau",   # handle either way
+        "riau islands": "kepulauan riau",
     }
     return replacements.get(n, n)
 
 def inject_css_js_to_kill_focus(m: folium.Map) -> None:
-    """Remove the black focus rectangle on click inside the iframe."""
     css = MacroElement()
     css._template = Template("""
     {% macro html(this, kwargs) %}
     <style>
     .leaflet-interactive:focus,
-    .leaflet-interactive:focus-visible {
-        outline: none !important;
-        outline-offset: 0 !important;
-    }
+    .leaflet-interactive:focus-visible { outline: none !important; outline-offset: 0 !important; }
     </style>
     {% endmacro %}
     """)
@@ -87,31 +91,24 @@ def inject_css_js_to_kill_focus(m: folium.Map) -> None:
     """)
     m.get_root().add_child(js)
 
-# ---------- Load data ----------
+# ---------------- Load data ----------------
 if not GEOJSON_PATH.exists():
-    st.error(f"GeoJSON not found: {GEOJSON_PATH.resolve()}")
-    st.stop()
+    st.error(f"GeoJSON not found: {GEOJSON_PATH.resolve()}"); st.stop()
 if not ICVI_CSV.exists():
-    st.error(f"ICVI CSV not found: {ICVI_CSV.resolve()}")
-    st.stop()
+    st.error(f"ICVI CSV not found: {ICVI_CSV.resolve()}"); st.stop()
 
 df = load_icvi(ICVI_CSV)
 gj = load_geojson(GEOJSON_PATH)
 
-# ---------- UI controls ----------
+# ---------------- UI ----------------
 years = sorted(df["year"].unique().tolist())
-default_year = max(years)
 year = st.slider("Year", min_value=min(years), max_value=max(years),
-                 value=default_year, step=1)
+                 value=max(years), step=1)
 
-# ---------- Prep data for the selected year ----------
+# ---------------- Prepare selected year ----------------
 year_df = df[df["year"] == year].copy()
+icvi_lookup = {norm_name(r["province"]): float(r["ICVI"]) for _, r in year_df.iterrows()}
 
-# Build a lookup: province -> ICVI  (normalized names)
-icvi_lookup = {norm_name(r["province"]): float(r["ICVI"])
-               for _, r in year_df.iterrows()}
-
-# Merge ICVI into GeoJSON properties
 missing = []
 for feat in gj["features"]:
     prov = feat["properties"].get("shapeName", "")
@@ -119,62 +116,8 @@ for feat in gj["features"]:
     val = icvi_lookup.get(key)
     if val is None:
         missing.append(prov)
-    feat["properties"]["ICVI"] = None if val is None else round(val, 6)
+    feat["properties"]["ICVI"] = None if val is None else float(val)
     feat["properties"]["ICVI_text"] = "No data" if val is None else f"{val:.3f}"
 
-# ---------- Build map ----------
-m = folium.Map(location=[-2, 118], zoom_start=5, tiles="CartoDB positron", control_scale=True)
-inject_css_js_to_kill_focus(m)
-
-# Color scale (Viridis) with fixed min/max
-colormap = linear.Viridis_09.scale(ICVI_MIN, ICVI_MAX)
-colormap.caption = "ICVI (0–1, fixed scale)"
-colormap.add_to(m)
-
-def style_fn(feature):
-    v = feature["properties"].get("ICVI", None)
-    if v is None:
-        return {
-            "fillColor": "#e5e7eb",  # light gray for no data
-            "color": "#111827",
-            "weight": 1,
-            "fillOpacity": 0.2,
-        }
-    return {
-        "fillColor": colormap(v),
-        "color": "#111827",
-        "weight": 1,
-        "fillOpacity": 0.7,
-    }
-
-folium.GeoJson(
-    data=gj,
-    name=f"ICVI {year}",
-    style_function=style_fn,
-    highlight_function=lambda f: {"weight": 2, "color": "#2563eb", "fillOpacity": 0.8},
-    tooltip=folium.GeoJsonTooltip(
-        fields=["shapeName", "ICVI_text"],
-        aliases=["Province:", "ICVI:"],
-        sticky=True,
-    ),
-    popup=folium.GeoJsonPopup(
-        fields=["shapeName", "ICVI_text"],
-        aliases=["Province:", "ICVI:"],
-        localize=True,
-        labels=True,
-    ),
-).add_to(m)
-
-folium.LayerControl(collapsed=False).add_to(m)
-
-# ---------- Render ----------
-st_folium(m, use_container_width=True, height=640)
-
-# ---------- Diagnostics ----------
-if missing:
-    with st.expander("Unmatched province names (check CSV vs GeoJSON)"):
-        st.write(sorted(set(missing)))
-        st.caption(
-            "Tip: adjust the `norm_name()` replacements if a province label differs "
-            "between your CSV and the GeoJSON (e.g., 'DKI Jakarta' vs 'Jakarta')."
-        )
+# ---------------- Map ----------------
+m = folium.Map(location
