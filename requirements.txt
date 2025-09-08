@@ -1,7 +1,7 @@
-streamlit
-folium
-streamlit-folium
-branca
-pandas
-numpy
-geopandas
+streamlit>=1.33
+folium>=0.15
+streamlit-folium>=0.21
+branca>=0.6
+pandas>=1.5
+numpy>=1.26
+matplotlib>=3.8
