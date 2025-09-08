@@ -27,37 +27,19 @@ ICVI_ADM2 = {
 
 # ---------- Region metadata (centers/zooms) ----------
 REGIONS = {
-    "Indonesia": {
-        "level": "ADM1",
-        "center": [-2.0, 118.0],
-        "zoom": 5,
-    },
-    "East Nusa Tenggara (NTT)": {
-        "level": "ADM2",
-        "center": [-9.367410, 122.213088],
-        "zoom": 7,
-    },
-    "North Sulawesi (Sulut)": {
-        "level": "ADM2",
-        "center": [2.651467, 125.414369],
-        "zoom": 7,
-    },
-    "Yogyakarta (DIY)": {
-        "level": "ADM2",
-        "center": [-7.887551, 110.429646],
-        "zoom": 10,
-    },
+    "Indonesia": {"level": "ADM1", "center": [-2.0, 118.0], "zoom": 5},
+    "East Nusa Tenggara (NTT)": {"level": "ADM2", "center": [-9.367410, 122.213088], "zoom": 7},
+    "North Sulawesi (Sulut)":   {"level": "ADM2", "center": [2.651467, 125.414369], "zoom": 7},
+    "Yogyakarta (DIY)":         {"level": "ADM2", "center": [-7.887551, 110.429646], "zoom": 10},
 }
 
 # ---------- Palette (Viridis via matplotlib) ----------
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
-
 def set_palette(name="viridis", low=0.0, high=1.0, n=256):
     cmap = cm.get_cmap(name)
     cols = cmap(np.linspace(low, high, n))
     return [mcolors.to_hex(c) for c in cols]
-
 PALETTE = set_palette("viridis", 0.0, 1.0, 256)
 
 # ---------- Helpers ----------
@@ -119,6 +101,7 @@ def norm_name(s: str) -> str:
     n = "".join(ch for ch in n if ch.isalnum())
     return n
 
+from branca.element import MacroElement, Template
 def inject_css_js_to_kill_focus(m: folium.Map) -> None:
     css = MacroElement()
     css._template = Template("""
@@ -176,7 +159,7 @@ def filter_adm2_by_names(gj2: dict, allowed_names_norm: set[str]) -> dict:
             feats.append(f)
     return {"type": "FeatureCollection", "features": feats}
 
-# ---------- Load geometry (with a spinner) ----------
+# ---------- Load geometry ----------
 with st.spinner("Loading boundaries..."):
     if not ADM1_GEOJSON.exists():
         st.error(f"GeoJSON not found: {ADM1_GEOJSON.resolve()}"); st.stop()
@@ -189,41 +172,28 @@ with st.spinner("Loading boundaries..."):
 region = st.selectbox("Region", list(REGIONS.keys()), index=0)  # default: Indonesia
 mode = st.radio("Mode", ["Average", "Yearly"], horizontal=True, index=0)  # Average default
 
-# Containers for progress + map
-map_container = st.empty()
-progress = st.progress(0, text="Loading data...")
-
-# ---------- Load ICVI for selected region ----------
-progress.progress(15, text="Loading data...")
-meta = REGIONS[region]
+# ---------- Load ICVI early so the Year slider can sit right under Mode ----------
+meta  = REGIONS[region]
 level = meta["level"]
 
 with st.spinner("Loading ICVI data..."):
-    if region == "Indonesia":
-        if not ICVI_PROV_CSV.exists():
-            progress.empty()
-            st.error(f"ICVI CSV not found: {ICVI_PROV_CSV.resolve()}"); st.stop()
-        df = load_csv(ICVI_PROV_CSV)
-    else:
-        path = ICVI_ADM2[region]
-        if not path.exists():
-            progress.empty()
-            st.error(f"ICVI CSV not found: {path.resolve()}"); st.stop()
-        df = load_csv(path)
-
-progress.progress(35, text="Preparing filters...")
+    df = load_csv(ICVI_PROV_CSV if region == "Indonesia" else ICVI_ADM2[region])
 
 name_col = detect_name_col(df, level)
 
-# Year control only for Yearly mode
+# ---------- Year slider (immediately after Mode) ----------
+year = None
 if mode == "Yearly":
     if "year" not in df.columns or df["year"].isna().all():
-        progress.empty()
         st.error("This dataset has no usable 'year' column for Yearly mode."); st.stop()
     years = sorted([int(y) for y in df["year"].dropna().unique()])
     year = st.slider("Year", min_value=min(years), max_value=max(years), value=max(years), step=1)
 
-# Select data for coloring
+# ---------- Map placeholder + progress (they come AFTER the slider) ----------
+map_container = st.empty()
+progress = st.progress(0, text="Preparing data...")
+
+# ---------- Select data for coloring ----------
 if mode == "Yearly":
     source_df = df[df["year"] == year].copy()
     layer_name = f"ICVI {year}"
@@ -231,31 +201,28 @@ else:
     source_df = df.groupby(name_col, as_index=False, dropna=False)["ICVI"].mean()
     layer_name = "ICVI Average"
 
-# Build lookup by normalized name (for current view)
 source_df[name_col] = source_df[name_col].astype(str)
 icvi_lookup = {norm_name(r[name_col]): float(r["ICVI"]) for _, r in source_df.iterrows() if pd.notna(r["ICVI"])}
 
-progress.progress(55, text="Filtering boundaries...")
+progress.progress(45, text="Filtering boundaries...")
 
 # ---------- Choose & build geometry ----------
 if level == "ADM1":
     gj = gj_adm1
     popup_label = "Province:"
 else:
-    # Option A: filter ADM2 by all regency names present in the region CSV (across years)
     all_names_norm = {norm_name(x) for x in df[name_col].dropna().astype(str)}
     gj = filter_adm2_by_names(gj_adm2, all_names_norm)
     popup_label = "Regency/City:"
 
-# Guard: empty geometry
 if not gj.get("features"):
     progress.empty()
     st.error("No boundaries found for this region. Ensure your ADM2 CSV names match GeoJSON 'shapeName'.")
     st.stop()
 
-progress.progress(70, text="Styling & coloring...")
+progress.progress(65, text="Styling & coloring...")
 
-# Detect geometry name key & attach displayName + ICVI fields
+# Attach displayName + ICVI fields
 geom_name_key = detect_geom_name_key(gj)
 for feat in gj["features"]:
     props = feat.setdefault("properties", {})
@@ -270,7 +237,6 @@ for feat in gj["features"]:
         props["ICVI"] = float(val)
         props["ICVI_text"] = f"{val:.3f}"
 
-# Dynamic color range based on values present on the map
 present_vals = [f["properties"]["ICVI"] for f in gj["features"] if f["properties"].get("ICVI") is not None]
 vmin, vmax = dynamic_range(pd.Series(present_vals))
 
@@ -287,7 +253,7 @@ folium.TileLayer(
     attr="Tiles © Esri — Source: Esri, HERE, Garmin, FAO, NOAA, USGS, and others",
     name="Esri WorldGrayCanvas",
     control=True,
-).add_to(m)  # added last so it is active by default
+).add_to(m)  # active by default
 
 # Color scale + caption
 colormap = LinearColormap(colors=PALETTE, vmin=vmin, vmax=vmax)
@@ -323,7 +289,7 @@ with map_container.container():
         use_container_width=True,
         height=640,
         key="mainmap",
-        returned_objects=[],  # disables callbacks so clicks won't rerun the app
+        returned_objects=[],  # stops callbacks so clicks won't rerun the app
     )
 
 progress.progress(100, text="Done")
