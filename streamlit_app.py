@@ -1,56 +1,85 @@
+# streamlit_app.py
 import streamlit as st
+from pathlib import Path
 import folium
 from streamlit_folium import st_folium
+from branca.element import MacroElement, Template
 
-# Set Streamlit page config
 st.set_page_config(page_title="ICVI Dashboard", layout="wide")
+st.title("Indonesia Provinces (ADM1)")
 
-st.markdown(
-    """
-    <style>
-    /* Kill focus ring on polygons/markers inside the Leaflet map */
-    .leaflet-container .leaflet-interactive:focus,
-    .leaflet-container .leaflet-interactive:focus-visible,
-    .leaflet-container a:focus,
-    .leaflet-container a:focus-visible {
-        outline: none !important;
-        outline-offset: 0 !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+# --- Paths ---
+GEOJSON_PATH = Path("data/geoBoundaries-IDN-ADM1_simplified.geojson")
+if not GEOJSON_PATH.exists():
+    st.error(f"GeoJSON not found: {GEOJSON_PATH.resolve()}")
+    st.stop()
 
+# --- Base map ---
+m = folium.Map(location=[-2, 118], zoom_start=5, tiles="CartoDB positron", control_scale=True)
 
-st.title("Indonesia Provincial Boundaries (ADM1)")
+# --- Remove the click focus rectangle (inside the iframe) ---
+# 1) CSS: hide focus ring on interactive paths
+css = MacroElement()
+css._template = Template("""
+{% macro html(this, kwargs) %}
+<style>
+.leaflet-interactive:focus,
+.leaflet-interactive:focus-visible {
+    outline: none !important;
+    outline-offset: 0 !important;
+}
+</style>
+{% endmacro %}
+""")
+m.get_root().add_child(css)
 
-# Load map
-m = folium.Map(location=[-2, 118], zoom_start=5, tiles="cartodbpositron")
+# 2) JS: strip tabindex & blur so polygons cannot receive focus
+js = MacroElement()
+js._template = Template("""
+{% macro script(this, kwargs) %}
+function __defocus__(){
+  document.querySelectorAll('.leaflet-interactive').forEach(function(el){
+    el.removeAttribute('tabindex');
+    if (el.blur) el.blur();
+  });
+}
+var map = {{ this._parent.get_name() }};
+map.on('layeradd', __defocus__);
+map.on('click', __defocus__);
+setTimeout(__defocus__, 300);
+{% endmacro %}
+""")
+m.get_root().add_child(js)
 
-# Add province boundaries (ADM1)
-geojson_path = "data/geoBoundaries-IDN-ADM1_simplified.geojson"
+# --- Province layer ---
 folium.GeoJson(
-    geojson_path,
+    data=str(GEOJSON_PATH),
     name="Provinces",
-    style_function=lambda feature: {
-        "fillColor": "lightblue",
-        "color": "black",
+    style_function=lambda f: {
+        "fillColor": "#dbeafe",   # light blue
+        "color": "#111827",       # dark border
         "weight": 1,
-        "fillOpacity": 0.2,
+        "fillOpacity": 0.3,
     },
-    highlight_function=lambda x: {
+    highlight_function=lambda f: {
         "weight": 2,
-        "color": "blue",
-        "fillOpacity": 0.4,
+        "color": "#2563eb",
+        "fillOpacity": 0.5,
     },
-    tooltip=folium.GeoJsonTooltip(fields=["shapeName"], aliases=["Province:"])
+    tooltip=folium.GeoJsonTooltip(
+        fields=["shapeName"],
+        aliases=["Province:"],
+        sticky=True,
+    ),
+    popup=folium.GeoJsonPopup(
+        fields=["shapeName"],
+        aliases=["Province:"],
+        localize=True,
+        labels=True,
+    ),
 ).add_to(m)
 
+folium.LayerControl(collapsed=False).add_to(m)
 
-
-
-# Add layer control
-folium.LayerControl().add_to(m)
-
-# Show map in Streamlit
-st_data = st_folium(m, width=900, height=600)
+# --- Render in Streamlit ---
+st_folium(m, use_container_width=True, height=620)
