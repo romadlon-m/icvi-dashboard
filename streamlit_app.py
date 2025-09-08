@@ -18,7 +18,7 @@ st.title("Indonesia ICVI — Provinces (ADM1)")
 GEOJSON_PATH = Path("data/geoBoundaries-IDN-ADM1_simplified.geojson")
 ICVI_CSV     = Path("data/icvi_results.csv")
 
-# ---------------- Palette (Viridis from matplotlib) ----------------
+# ---------------- Palette (Viridis via matplotlib) ----------------
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 
@@ -113,14 +113,32 @@ if not ICVI_CSV.exists():
 df = load_icvi(ICVI_CSV)
 gj = load_geojson(GEOJSON_PATH)
 
-# ---------------- UI ----------------
-years = sorted(df["year"].unique().tolist())
-year = st.slider("Year", min_value=min(years), max_value=max(years),
-                 value=max(years), step=1)
+# ---------------- Controls ----------------
+mode = st.radio("Mode", ["Year", "Average"], horizontal=True)
 
-# ---------------- Prepare data for selected year ----------------
-year_df = df[df["year"] == year].copy()
-icvi_lookup = {norm_name(r["province"]): float(r["ICVI"]) for _, r in year_df.iterrows()}
+if mode == "Year":
+    years = sorted(df["year"].unique().tolist())
+    year = st.slider("Year", min_value=min(years), max_value=max(years),
+                     value=max(years), step=1)
+
+# ---------------- Prepare data by mode ----------------
+if mode == "Year":
+    source_df = df[df["year"] == year].copy()
+    layer_name = f"ICVI {year}"
+    legend_caption = f"ICVI — dynamic scale for {year}"
+else:
+    # Average ICVI per province across all years
+    avg_df = (df.groupby("province", as_index=False)["ICVI"]
+                .mean()
+                .rename(columns={"ICVI": "ICVI_avg"}))
+    avg_df["ICVI"] = avg_df["ICVI_avg"]  # reuse same field name downstream
+    source_df = avg_df[["province", "ICVI"]].copy()
+    layer_name = "ICVI Average"
+    legend_caption = "ICVI — dynamic scale (Average)"
+
+# Build lookup: normalized province name -> ICVI value
+icvi_lookup = {norm_name(r["province"]): float(r["ICVI"])
+               for _, r in source_df.iterrows()}
 
 # Merge ICVI into GeoJSON props; track name mismatches
 missing = []
@@ -136,7 +154,7 @@ for feat in gj["features"]:
         feat["properties"]["ICVI"] = float(val)
         feat["properties"]["ICVI_text"] = f"{val:.3f}"
 
-# Compute dynamic min/max from values that are present for this year
+# Compute dynamic min/max from values present for current view (year or average)
 present_vals = [f["properties"]["ICVI"] for f in gj["features"] if f["properties"].get("ICVI") is not None]
 vmin, vmax = dynamic_range(pd.Series(present_vals))
 
@@ -144,26 +162,18 @@ vmin, vmax = dynamic_range(pd.Series(present_vals))
 m = folium.Map(location=[-2, 118], zoom_start=5, tiles=None, control_scale=True)
 inject_css_js_to_kill_focus(m)
 
-# Basemaps: Esri World Gray Canvas (base + labels), + a couple alternates
+# Basemaps: ONLY Esri WorldGrayCanvas + OpenStreetMap
 folium.TileLayer(
     tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
     attr="Tiles © Esri — Source: Esri, HERE, Garmin, FAO, NOAA, USGS, and others",
     name="Esri WorldGrayCanvas",
     control=True,
 ).add_to(m)
-folium.TileLayer(
-    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
-    attr="Labels © Esri",
-    name="Esri Gray Labels",
-    control=True,
-    overlay=True,
-).add_to(m)
 folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
-folium.TileLayer("CartoDB dark_matter", name="Dark").add_to(m)
 
-# Colormap (dynamic scale for the selected year)
+# Colormap (dynamic scale for the selected mode)
 colormap = LinearColormap(colors=PALETTE, vmin=vmin, vmax=vmax)
-colormap.caption = f"ICVI — dynamic scale for {year} (min {vmin:.3f}, max {vmax:.3f})"
+colormap.caption = f"{legend_caption} (min {vmin:.3f}, max {vmax:.3f})"
 colormap.add_to(m)
 
 def style_fn(feature):
@@ -174,10 +184,9 @@ def style_fn(feature):
 
 folium.GeoJson(
     data=gj,
-    name=f"ICVI {year}",
+    name=layer_name,
     style_function=style_fn,
     highlight_function=None,  # click-only UX (no hover highlight)
-    # Click-only popup (no tooltip)
     popup=folium.GeoJsonPopup(
         fields=["shapeName", "ICVI_text"],
         aliases=["Province:", "ICVI:"],
