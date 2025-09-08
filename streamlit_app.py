@@ -1,50 +1,31 @@
 import streamlit as st
-import ee
-from google.oauth2 import service_account
-import geemap.foliumap as geemap
-import folium
+import geopandas as gpd
+import pandas as pd
+import plotly.express as px
 
-# ----------------------------------------------------
-# Earth Engine Authentication
-# ----------------------------------------------------
-# Load credentials from Streamlit secrets
-service_account_info = st.secrets["GEE_KEY"]
+# Load GeoJSON (province boundaries)
+gdf = gpd.read_file("data/geoBoundaries-IDN-ADM1_simplified.geojson")
 
-credentials = service_account.Credentials.from_service_account_info(service_account_info)
-scoped_credentials = credentials.with_scopes(['https://www.googleapis.com/auth/earthengine'])
-ee.Initialize(scoped_credentials)
+# Load ICVI results
+df = pd.read_csv("data/icvi_results.csv")
 
-# ----------------------------------------------------
-# Streamlit UI
-# ----------------------------------------------------
-st.title("ICVI Dashboard")
-st.subheader("Interactive dashboard for the Integrated Climate Vulnerability Index (ICVI) in Indonesia (2014–2023)")
+# Year slider
+year = st.slider("Select Year", int(df["year"].min()), int(df["year"].max()), int(df["year"].max()))
+df_year = df[df["year"] == year]
 
-# Create a map centered on Indonesia
-m = geemap.Map(center=[-2, 118], zoom=4)
+# Merge by province name (adjust column names as needed)
+merged = gdf.merge(df_year, left_on="shapeName", right_on="province")
 
-# Load GAUL provinces from Earth Engine
-gaul = ee.FeatureCollection("projects/sat-io/open-datasets/FAO/GAUL/GAUL_2024_L1")
-indo = gaul.filter(ee.Filter.eq("gaul0_name", "Indonesia"))
+# Plot choropleth
+fig = px.choropleth(
+    merged,
+    geojson=merged.geometry,
+    locations=merged.index,
+    color="ICVI",
+    hover_name="province",
+    projection="mercator",
+    color_continuous_scale="YlOrRd"
+)
 
-# Add to map
-m.addLayer(indo, {}, "Indonesia Provinces")
-
-# show the province name on hover with a GeoJson tooltip
-geojson = geemap.ee_to_geojson(indo)
-folium.GeoJson(
-    geojson,
-    name="Indonesia Provinces",
-    tooltip=folium.GeoJsonTooltip(fields=["gaul1_name"], aliases=["Province:"])
-).add_to(m)
-
-
-
-# Display map in Streamlit
-m.to_streamlit(width=800, height=600)
-
-st.markdown("""
-**Notes:**
-- This map uses the GAUL 2015 dataset from FAO (hosted on Google Earth Engine).
-- Next step: join with ICVI results (province-level) to color provinces by vulnerability index.
-""")
+fig.update_geos(fitbounds="locations", visible=False)
+st.plotly_chart(fig, use_container_width=True)
