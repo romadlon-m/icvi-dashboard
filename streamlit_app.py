@@ -2,6 +2,7 @@ import streamlit as st
 import ee
 from google.oauth2 import service_account
 import geemap.foliumap as geemap
+import folium
 
 # ----------------------------------------------------
 # Earth Engine Authentication
@@ -28,6 +29,14 @@ indo = gaul.filter(ee.Filter.eq("ADM0_NAME", "Indonesia"))
 
 # Add to map
 m.addLayer(indo, {}, "Indonesia Provinces")
+
+# show the province name on hover with a GeoJson tooltip
+folium.GeoJson(
+    indo,
+    name="Indonesia Provinces",
+    tooltip=folium.GeoJsonTooltip(fields=["ADM1_NAME"], aliases=["Province:"])
+).add_to(m)
+
 
 # Display map in Streamlit
 m.to_streamlit(width=800, height=600)
