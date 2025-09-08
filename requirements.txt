@@ -4,4 +4,5 @@ matplotlib
 plotly
 geopandas
 folium
+st_folium
 geemap
