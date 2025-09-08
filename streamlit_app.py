@@ -5,6 +5,23 @@ from streamlit_folium import st_folium
 # Set Streamlit page config
 st.set_page_config(page_title="ICVI Dashboard", layout="wide")
 
+st.markdown(
+    """
+    <style>
+    /* Kill focus ring on polygons/markers inside the Leaflet map */
+    .leaflet-container .leaflet-interactive:focus,
+    .leaflet-container .leaflet-interactive:focus-visible,
+    .leaflet-container a:focus,
+    .leaflet-container a:focus-visible {
+        outline: none !important;
+        outline-offset: 0 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
 st.title("Indonesia Provincial Boundaries (ADM1)")
 
 # Load map
