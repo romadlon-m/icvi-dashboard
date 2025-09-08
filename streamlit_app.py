@@ -25,21 +25,39 @@ ICVI_ADM2 = {
     "Yogyakarta (DIY)":         Path("data/DIY_icvi_results.csv"),
 }
 
-# ---------- Region metadata ----------
+# ---------- Region metadata (centers/zooms) ----------
 REGIONS = {
-    "Indonesia": {"level": "ADM1", "center": [-2.0, 118.0], "zoom": 5},
-    "East Nusa Tenggara (NTT)": {"level": "ADM2", "center": [-9.367410, 122.213088], "zoom": 7},
-    "North Sulawesi (Sulut)":   {"level": "ADM2", "center": [2.651467, 125.414369], "zoom": 7},
-    "Yogyakarta (DIY)":         {"level": "ADM2", "center": [-7.887551, 110.429646], "zoom": 10},
+    "Indonesia": {
+        "level": "ADM1",
+        "center": [-2.0, 118.0],
+        "zoom": 5,
+    },
+    "East Nusa Tenggara (NTT)": {
+        "level": "ADM2",
+        "center": [-9.367410, 122.213088],
+        "zoom": 7,
+    },
+    "North Sulawesi (Sulut)": {
+        "level": "ADM2",
+        "center": [2.651467, 125.414369],
+        "zoom": 7,
+    },
+    "Yogyakarta (DIY)": {
+        "level": "ADM2",
+        "center": [-7.887551, 110.429646],
+        "zoom": 10,
+    },
 }
 
 # ---------- Palette (Viridis via matplotlib) ----------
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+
 def set_palette(name="viridis", low=0.0, high=1.0, n=256):
     cmap = cm.get_cmap(name)
     cols = cmap(np.linspace(low, high, n))
     return [mcolors.to_hex(c) for c in cols]
+
 PALETTE = set_palette("viridis", 0.0, 1.0, 256)
 
 # ---------- Helpers ----------
@@ -150,7 +168,7 @@ def detect_geom_name_key(gj: dict) -> str:
     return next(iter(props.keys()), "shapeName")
 
 def filter_adm2_by_names(gj2: dict, allowed_names_norm: set[str]) -> dict:
-    """Keep ADM2 features whose shapeName matches names from CSV (Option A)."""
+    """Option A: keep ADM2 features whose shapeName matches names from CSV."""
     feats = []
     for f in gj2.get("features", []):
         nm = f.get("properties", {}).get("shapeName", "")
@@ -158,7 +176,7 @@ def filter_adm2_by_names(gj2: dict, allowed_names_norm: set[str]) -> dict:
             feats.append(f)
     return {"type": "FeatureCollection", "features": feats}
 
-# ---------- Load geometry ----------
+# ---------- Load geometry (with a spinner) ----------
 with st.spinner("Loading boundaries..."):
     if not ADM1_GEOJSON.exists():
         st.error(f"GeoJSON not found: {ADM1_GEOJSON.resolve()}"); st.stop()
@@ -171,28 +189,41 @@ with st.spinner("Loading boundaries..."):
 region = st.selectbox("Region", list(REGIONS.keys()), index=0)  # default: Indonesia
 mode = st.radio("Mode", ["Average", "Yearly"], horizontal=True, index=0)  # Average default
 
+# Containers for progress + map
+map_container = st.empty()
+progress = st.progress(0, text="Loading data...")
+
 # ---------- Load ICVI for selected region ----------
+progress.progress(15, text="Loading data...")
 meta = REGIONS[region]
 level = meta["level"]
 
 with st.spinner("Loading ICVI data..."):
-    df = load_csv(ICVI_PROV_CSV if region == "Indonesia" else ICVI_ADM2[region])
+    if region == "Indonesia":
+        if not ICVI_PROV_CSV.exists():
+            progress.empty()
+            st.error(f"ICVI CSV not found: {ICVI_PROV_CSV.resolve()}"); st.stop()
+        df = load_csv(ICVI_PROV_CSV)
+    else:
+        path = ICVI_ADM2[region]
+        if not path.exists():
+            progress.empty()
+            st.error(f"ICVI CSV not found: {path.resolve()}"); st.stop()
+        df = load_csv(path)
+
+progress.progress(35, text="Preparing filters...")
 
 name_col = detect_name_col(df, level)
 
-# ---------- Year slider directly under Mode ----------
-year = None
+# Year control only for Yearly mode
 if mode == "Yearly":
     if "year" not in df.columns or df["year"].isna().all():
+        progress.empty()
         st.error("This dataset has no usable 'year' column for Yearly mode."); st.stop()
     years = sorted([int(y) for y in df["year"].dropna().unique()])
     year = st.slider("Year", min_value=min(years), max_value=max(years), value=max(years), step=1)
 
-# ---------- Progress + Map placeholder ----------
-map_container = st.empty()
-progress = st.progress(0, text="Preparing data...")
-
-# ---------- Select data for coloring ----------
+# Select data for coloring
 if mode == "Yearly":
     source_df = df[df["year"] == year].copy()
     layer_name = f"ICVI {year}"
@@ -200,28 +231,31 @@ else:
     source_df = df.groupby(name_col, as_index=False, dropna=False)["ICVI"].mean()
     layer_name = "ICVI Average"
 
+# Build lookup by normalized name (for current view)
 source_df[name_col] = source_df[name_col].astype(str)
 icvi_lookup = {norm_name(r[name_col]): float(r["ICVI"]) for _, r in source_df.iterrows() if pd.notna(r["ICVI"])}
 
-progress.progress(45, text="Filtering boundaries...")
+progress.progress(55, text="Filtering boundaries...")
 
 # ---------- Choose & build geometry ----------
 if level == "ADM1":
     gj = gj_adm1
     popup_label = "Province:"
 else:
+    # Option A: filter ADM2 by all regency names present in the region CSV (across years)
     all_names_norm = {norm_name(x) for x in df[name_col].dropna().astype(str)}
     gj = filter_adm2_by_names(gj_adm2, all_names_norm)
     popup_label = "Regency/City:"
 
+# Guard: empty geometry
 if not gj.get("features"):
     progress.empty()
     st.error("No boundaries found for this region. Ensure your ADM2 CSV names match GeoJSON 'shapeName'.")
     st.stop()
 
-progress.progress(65, text="Styling & coloring...")
+progress.progress(70, text="Styling & coloring...")
 
-# Attach displayName + ICVI fields
+# Detect geometry name key & attach displayName + ICVI fields
 geom_name_key = detect_geom_name_key(gj)
 for feat in gj["features"]:
     props = feat.setdefault("properties", {})
@@ -236,25 +270,26 @@ for feat in gj["features"]:
         props["ICVI"] = float(val)
         props["ICVI_text"] = f"{val:.3f}"
 
+# Dynamic color range based on values present on the map
 present_vals = [f["properties"]["ICVI"] for f in gj["features"] if f["properties"].get("ICVI") is not None]
 vmin, vmax = dynamic_range(pd.Series(present_vals))
 
 progress.progress(85, text="Rendering map...")
 
-# ---------- Build map ----------
+# ---------- Map ----------
 m = folium.Map(location=meta["center"], zoom_start=meta["zoom"], tiles=None, control_scale=True)
 inject_css_js_to_kill_focus(m)
 
-# Basemaps (Esri default; OSM also available)
-folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)  # added first
+# Basemaps (default = Esri WorldGrayCanvas)
+folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)  # add first
 folium.TileLayer(
     tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
     attr="Tiles © Esri — Source: Esri, HERE, Garmin, FAO, NOAA, USGS, and others",
     name="Esri WorldGrayCanvas",
     control=True,
-).add_to(m)  # added last so it's active by default
+).add_to(m)  # added last so it is active by default
 
-# Color scale
+# Color scale + caption
 colormap = LinearColormap(colors=PALETTE, vmin=vmin, vmax=vmax)
 colormap.caption = "ICVI Score"
 colormap.add_to(m)
@@ -265,58 +300,31 @@ def style_fn(feature):
         return {"fillColor": "#e5e7eb", "color": "#111827", "weight": 1, "fillOpacity": 0.25}
     return {"fillColor": colormap(v), "color": "#111827", "weight": 1, "fillOpacity": 0.75}
 
-geo = folium.GeoJson(
+folium.GeoJson(
     data=gj,
     name=layer_name,
     style_function=style_fn,
-    highlight_function=None,  # we’ll handle click highlight via JS
+    highlight_function=None,  # click-only UX
     popup=folium.GeoJsonPopup(
         fields=["displayName", "ICVI_text"],
         aliases=[popup_label, "ICVI:"],
-        localize=True, labels=True, max_width=320,
+        localize=True,
+        labels=True,
+        max_width=320,
     ),
 ).add_to(m)
 
-# Persistent click highlight
-BASE_WEIGHT, BASE_COLOR, BASE_FILL_OPACITY = 1, "#111827", 0.75
-SEL_WEIGHT, SEL_COLOR, SEL_FILL_OPACITY = 3, "#ef4444", 0.85
-
-click_highlight_js = MacroElement()
-click_highlight_js._template = Template(f"""
-{{% macro script(this, kwargs) %}}
-var gj = {{ this._parent.get_name() }};
-var __selected__;
-function __reset_selected__(){{
-  if (__selected__) {{
-    try {{ __selected__.setStyle({{weight:{BASE_WEIGHT}, color:"{BASE_COLOR}", fillOpacity:{BASE_FILL_OPACITY}}}); }} catch(e) {{}}
-  }}
-}}
-gj.eachLayer(function(l){{
-  l.on('click', function(e){{
-    __reset_selected__();
-    __selected__ = l;
-    l.bringToFront();
-    l.setStyle({{weight:{SEL_WEIGHT}, color:"{SEL_COLOR}", fillOpacity:{SEL_FILL_OPACITY}}});
-  }});
-}});
-{{% endmacro %}}
-""")
-geo.add_child(click_highlight_js)
-
 folium.LayerControl(collapsed=False).add_to(m)
 
-# ---------- Robust render (with fallbacks) ----------
+# ---------- Render (disable reruns on click) ----------
 with map_container.container():
-    try:
-        # Preferred: stops reruns on click if your streamlit-folium supports it
-        st_folium(m, use_container_width=True, height=640, key="mainmap", returned_objects=[])
-    except TypeError:
-        # Older versions: render without the extra param
-        st_folium(m, use_container_width=True, height=640, key="mainmap")
-    except Exception:
-        # Last resort: static HTML embed (always works)
-        from streamlit.components.v1 import html
-        html(m._repr_html_(), height=640)
+    st_folium(
+        m,
+        use_container_width=True,
+        height=640,
+        key="mainmap",
+        returned_objects=[],  # disables callbacks so clicks won't rerun the app
+    )
 
 progress.progress(100, text="Done")
 progress.empty()
