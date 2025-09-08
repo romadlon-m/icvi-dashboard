@@ -25,7 +25,7 @@ ICVI_ADM2 = {
     "Yogyakarta (DIY)":         Path("data/DIY_icvi_results.csv"),
 }
 
-# ---------- Region metadata (updated centers/zooms) ----------
+# ---------- Region metadata (your centers/zooms) ----------
 REGIONS = {
     "Indonesia": {
         "level": "ADM1",
@@ -176,32 +176,40 @@ def filter_adm2_by_names(gj2: dict, allowed_names_norm: set[str]) -> dict:
             feats.append(f)
     return {"type": "FeatureCollection", "features": feats}
 
-# ---------- Load geometry ----------
-if not ADM1_GEOJSON.exists():
-    st.error(f"GeoJSON not found: {ADM1_GEOJSON.resolve()}"); st.stop()
-if not ADM2_GEOJSON.exists():
-    st.error(f"GeoJSON not found: {ADM2_GEOJSON.resolve()}"); st.stop()
-
-gj_adm1 = load_geojson(ADM1_GEOJSON)
-gj_adm2 = load_geojson(ADM2_GEOJSON)
+# ---------- Load geometry (with a spinner) ----------
+with st.spinner("Loading boundaries..."):
+    if not ADM1_GEOJSON.exists():
+        st.error(f"GeoJSON not found: {ADM1_GEOJSON.resolve()}"); st.stop()
+    if not ADM2_GEOJSON.exists():
+        st.error(f"GeoJSON not found: {ADM2_GEOJSON.resolve()}"); st.stop()
+    gj_adm1 = load_geojson(ADM1_GEOJSON)
+    gj_adm2 = load_geojson(ADM2_GEOJSON)
 
 # ---------- Controls ----------
 region = st.selectbox("Region", list(REGIONS.keys()), index=0)  # default: Indonesia
 mode = st.radio("Mode", ["Average", "Yearly"], horizontal=True, index=0)  # Average default
 
-# Load ICVI data for selected region
+# We'll render the map into this placeholder, showing progress first
+map_placeholder = st.empty()
+progress = st.progress(0, text="Loading data...")
+
+# ---------- Load ICVI for selected region ----------
+progress.progress(15, text="Loading data...")
 meta = REGIONS[region]
 level = meta["level"]
 
-if region == "Indonesia":
-    if not ICVI_PROV_CSV.exists():
-        st.error(f"ICVI CSV not found: {ICVI_PROV_CSV.resolve()}"); st.stop()
-    df = load_csv(ICVI_PROV_CSV)
-else:
-    path = ICVI_ADM2[region]
-    if not path.exists():
-        st.error(f"ICVI CSV not found: {path.resolve()}"); st.stop()
-    df = load_csv(path)
+with st.spinner("Loading ICVI data..."):
+    if region == "Indonesia":
+        if not ICVI_PROV_CSV.exists():
+            st.error(f"ICVI CSV not found: {ICVI_PROV_CSV.resolve()}"); st.stop()
+        df = load_csv(ICVI_PROV_CSV)
+    else:
+        path = ICVI_ADM2[region]
+        if not path.exists():
+            st.error(f"ICVI CSV not found: {path.resolve()}"); st.stop()
+        df = load_csv(path)
+
+progress.progress(35, text="Preparing filters...")
 
 name_col = detect_name_col(df, level)
 
@@ -224,6 +232,8 @@ else:
 source_df[name_col] = source_df[name_col].astype(str)
 icvi_lookup = {norm_name(r[name_col]): float(r["ICVI"]) for _, r in source_df.iterrows() if pd.notna(r["ICVI"])}
 
+progress.progress(55, text="Filtering boundaries...")
+
 # ---------- Choose & build geometry ----------
 if level == "ADM1":
     gj = gj_adm1
@@ -236,19 +246,14 @@ else:
 
 # Guard: empty geometry
 if not gj.get("features"):
+    progress.empty()
     st.error("No boundaries found for this region. Ensure your ADM2 CSV names match GeoJSON 'shapeName'.")
     st.stop()
 
+progress.progress(70, text="Styling & coloring...")
+
 # Detect geometry name key & attach displayName + ICVI fields
 geom_name_key = detect_geom_name_key(gj)
-missing_geom = []
-missing_csv  = []
-
-geom_names_norm_set = {norm_name(f["properties"].get(geom_name_key, "")) for f in gj["features"]}
-for csv_nm in (source_df[name_col].dropna().astype(str)):
-    if norm_name(csv_nm) not in geom_names_norm_set:
-        missing_csv.append(csv_nm)
-
 for feat in gj["features"]:
     props = feat.setdefault("properties", {})
     disp = props.get(geom_name_key) or props.get("shapeName") or props.get("name") or "Unknown"
@@ -256,7 +261,6 @@ for feat in gj["features"]:
     key = norm_name(disp)
     val = icvi_lookup.get(key)
     if val is None or pd.isna(val):
-        missing_geom.append(disp)
         props["ICVI"] = None
         props["ICVI_text"] = "No data"
     else:
@@ -266,6 +270,8 @@ for feat in gj["features"]:
 # Dynamic color range based on values present on the map
 present_vals = [f["properties"]["ICVI"] for f in gj["features"] if f["properties"].get("ICVI") is not None]
 vmin, vmax = dynamic_range(pd.Series(present_vals))
+
+progress.progress(85, text="Rendering map...")
 
 # ---------- Map ----------
 m = folium.Map(location=meta["center"], zoom_start=meta["zoom"], tiles=None, control_scale=True)
@@ -308,7 +314,7 @@ folium.GeoJson(
 folium.LayerControl(collapsed=False).add_to(m)
 
 # ---------- Render (disable reruns on click) ----------
-st_folium(
+map_placeholder.st_folium(
     m,
     use_container_width=True,
     height=640,
@@ -316,10 +322,5 @@ st_folium(
     returned_objects=[],  # <- disables callbacks so clicks won't rerun the app
 )
 
-# ---------- Diagnostics ----------
-with st.expander("Name mismatches (helpful if something doesn't color)"):
-    if level == "ADM2":
-        st.write("**CSV names not found in ADM2 geometry:**")
-        st.write(sorted(set(missing_csv)) or "—")
-    st.write("**Geometry names with no ICVI in current view:**")
-    st.write(sorted(set(missing_geom)) or "—")
+progress.progress(100, text="Done")
+progress.empty()
