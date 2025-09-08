@@ -189,41 +189,31 @@ with st.spinner("Loading boundaries..."):
 region = st.selectbox("Region", list(REGIONS.keys()), index=0)  # default: Indonesia
 mode = st.radio("Mode", ["Average", "Yearly"], horizontal=True, index=0)  # Average default
 
-# Containers for progress + map
-map_container = st.empty()
-progress = st.progress(0, text="Loading data...")
-
-# ---------- Load ICVI for selected region ----------
-progress.progress(15, text="Loading data...")
+# ---------- Load ICVI for selected region (before slider so it can sit under Mode) ----------
 meta = REGIONS[region]
 level = meta["level"]
 
 with st.spinner("Loading ICVI data..."):
     if region == "Indonesia":
-        if not ICVI_PROV_CSV.exists():
-            progress.empty()
-            st.error(f"ICVI CSV not found: {ICVI_PROV_CSV.resolve()}"); st.stop()
         df = load_csv(ICVI_PROV_CSV)
     else:
-        path = ICVI_ADM2[region]
-        if not path.exists():
-            progress.empty()
-            st.error(f"ICVI CSV not found: {path.resolve()}"); st.stop()
-        df = load_csv(path)
-
-progress.progress(35, text="Preparing filters...")
+        df = load_csv(ICVI_ADM2[region])
 
 name_col = detect_name_col(df, level)
 
-# Year control only for Yearly mode
+# ---------- Year slider (directly under Mode) ----------
+year = None
 if mode == "Yearly":
     if "year" not in df.columns or df["year"].isna().all():
-        progress.empty()
         st.error("This dataset has no usable 'year' column for Yearly mode."); st.stop()
     years = sorted([int(y) for y in df["year"].dropna().unique()])
     year = st.slider("Year", min_value=min(years), max_value=max(years), value=max(years), step=1)
 
-# Select data for coloring
+# ---------- Progress + Map placeholder ----------
+map_container = st.empty()
+progress = st.progress(0, text="Preparing data...")
+
+# ---------- Select data for coloring ----------
 if mode == "Yearly":
     source_df = df[df["year"] == year].copy()
     layer_name = f"ICVI {year}"
@@ -231,31 +221,28 @@ else:
     source_df = df.groupby(name_col, as_index=False, dropna=False)["ICVI"].mean()
     layer_name = "ICVI Average"
 
-# Build lookup by normalized name (for current view)
 source_df[name_col] = source_df[name_col].astype(str)
 icvi_lookup = {norm_name(r[name_col]): float(r["ICVI"]) for _, r in source_df.iterrows() if pd.notna(r["ICVI"])}
 
-progress.progress(55, text="Filtering boundaries...")
+progress.progress(45, text="Filtering boundaries...")
 
 # ---------- Choose & build geometry ----------
 if level == "ADM1":
     gj = gj_adm1
     popup_label = "Province:"
 else:
-    # Option A: filter ADM2 by all regency names present in the region CSV (across years)
     all_names_norm = {norm_name(x) for x in df[name_col].dropna().astype(str)}
     gj = filter_adm2_by_names(gj_adm2, all_names_norm)
     popup_label = "Regency/City:"
 
-# Guard: empty geometry
 if not gj.get("features"):
     progress.empty()
     st.error("No boundaries found for this region. Ensure your ADM2 CSV names match GeoJSON 'shapeName'.")
     st.stop()
 
-progress.progress(70, text="Styling & coloring...")
+progress.progress(65, text="Styling & coloring...")
 
-# Detect geometry name key & attach displayName + ICVI fields
+# Attach displayName + ICVI fields
 geom_name_key = detect_geom_name_key(gj)
 for feat in gj["features"]:
     props = feat.setdefault("properties", {})
@@ -270,7 +257,6 @@ for feat in gj["features"]:
         props["ICVI"] = float(val)
         props["ICVI_text"] = f"{val:.3f}"
 
-# Dynamic color range based on values present on the map
 present_vals = [f["properties"]["ICVI"] for f in gj["features"] if f["properties"].get("ICVI") is not None]
 vmin, vmax = dynamic_range(pd.Series(present_vals))
 
@@ -287,7 +273,7 @@ folium.TileLayer(
     attr="Tiles © Esri — Source: Esri, HERE, Garmin, FAO, NOAA, USGS, and others",
     name="Esri WorldGrayCanvas",
     control=True,
-).add_to(m)  # added last so it is active by default
+).add_to(m)  # active by default
 
 # Color scale + caption
 colormap = LinearColormap(colors=PALETTE, vmin=vmin, vmax=vmax)
@@ -300,11 +286,12 @@ def style_fn(feature):
         return {"fillColor": "#e5e7eb", "color": "#111827", "weight": 1, "fillOpacity": 0.25}
     return {"fillColor": colormap(v), "color": "#111827", "weight": 1, "fillOpacity": 0.75}
 
-folium.GeoJson(
+# Add GeoJSON layer
+geo = folium.GeoJson(
     data=gj,
     name=layer_name,
     style_function=style_fn,
-    highlight_function=None,  # click-only UX
+    highlight_function=None,  # we’ll handle click highlight via JS below
     popup=folium.GeoJsonPopup(
         fields=["displayName", "ICVI_text"],
         aliases=[popup_label, "ICVI:"],
@@ -313,6 +300,39 @@ folium.GeoJson(
         max_width=320,
     ),
 ).add_to(m)
+
+# --- Persistent click highlight (thicker border & different color) ---
+# base line style should match your non-selected style
+BASE_WEIGHT = 1
+BASE_COLOR = "#111827"
+BASE_FILL_OPACITY = 0.75
+SEL_WEIGHT = 3
+SEL_COLOR = "#ef4444"        # Tailwind red-500
+SEL_FILL_OPACITY = 0.85
+
+click_highlight_js = MacroElement()
+click_highlight_js._template = Template(f"""
+{{% macro script(this, kwargs) %}}
+var gj = {{ this._parent.get_name() }};  // the GeoJson layer
+var __selected__;
+function __reset_selected__(){{
+  if (__selected__) {{
+    try {{
+      __selected__.setStyle({{weight: {BASE_WEIGHT}, color: "{BASE_COLOR}", fillOpacity: {BASE_FILL_OPACITY} }});
+    }} catch (e) {{}}
+  }}
+}}
+gj.eachLayer(function(l){{
+  l.on('click', function(e){{
+    __reset_selected__();
+    __selected__ = l;
+    l.bringToFront();
+    l.setStyle({{weight: {SEL_WEIGHT}, color: "{SEL_COLOR}", fillOpacity: {SEL_FILL_OPACITY} }});
+  }});
+}});
+{{% endmacro %}}
+""")
+geo.add_child(click_highlight_js)
 
 folium.LayerControl(collapsed=False).add_to(m)
 
@@ -323,7 +343,7 @@ with map_container.container():
         use_container_width=True,
         height=640,
         key="mainmap",
-        returned_objects=[],  # disables callbacks so clicks won't rerun the app
+        returned_objects=[],  # disable callbacks so clicks won't rerun the app
     )
 
 progress.progress(100, text="Done")
