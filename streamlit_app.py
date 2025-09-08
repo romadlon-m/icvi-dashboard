@@ -63,9 +63,9 @@ def load_geojson(path: Path) -> dict:
 
 def detect_name_col(df: pd.DataFrame, level: str) -> str:
     if level == "ADM1":
-        candidates = ["province", "provinsi", "name", "shapeName"]
+        candidates = ["province"]
     else:
-        candidates = ["regency", "kabupaten_kota", "kab_kota", "kabupaten", "kota", "name", "shapeName", "adm2"]
+        candidates = ["regency"]
     for c in candidates:
         if c in df.columns:
             return c
@@ -75,7 +75,7 @@ def detect_name_col(df: pd.DataFrame, level: str) -> str:
     raise ValueError("Could not detect a name column in CSV.")
 
 def norm_name(s: str) -> str:
-    """Keep 'kota' to differentiate from regency; don't touch kabupaten names."""
+    """Keep 'kota' to differentiate from regency."""
     if not isinstance(s, str):
         return ""
     n = s.strip().lower()
@@ -135,7 +135,7 @@ def detect_geom_name_key(gj: dict) -> str:
     if not gj.get("features"):
         return "shapeName"
     props = gj["features"][0].get("properties", {})
-    for k in ["shapeName", "NAME_2", "NAME_1", "name", "Name"]:
+    for k in ["shapeName"]:
         if k in props:
             return k
     return next(iter(props.keys()), "shapeName")
