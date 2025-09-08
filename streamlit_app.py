@@ -284,3 +284,32 @@ with map_container.container():
 
 progress.progress(100, text="Done")
 progress.empty()
+
+
+# ---------DEBUG
+if level == "ADM2":
+    st.subheader(f"Regency/City list for {region}")
+
+    # List from CSV
+    csv_names = sorted(df[name_col].dropna().unique().tolist())
+    st.markdown("**From CSV:**")
+    st.write(csv_names)
+
+    # List from GeoJSON (only the regencies in that province CSV, using your normalizer)
+    gj_names = [f["properties"].get("shapeName", "") for f in gj_adm2["features"]]
+    gj_names = sorted(set(gj_names))
+    st.markdown("**From GeoJSON (all ADM2 features):**")
+    st.write(gj_names)
+
+    # Quick matched subset (those in both)
+    matched = sorted(set(csv_names) & set(gj_names))
+    st.markdown("**Matched names:**")
+    st.write(matched)
+
+    # Unmatched
+    st.markdown("**CSV not in GeoJSON:**")
+    st.write(sorted(set(csv_names) - set(gj_names)))
+
+    st.markdown("**GeoJSON not in CSV:**")
+    st.write(sorted(set(gj_names) - set(csv_names)))
+
