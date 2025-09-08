@@ -34,12 +34,12 @@ REGIONS = {
     },
     "East Nusa Tenggara (NTT)": {
         "level": "ADM2",
-        "center": [-9.468885, 122.351054],  # NTT
-        "zoom": 7,
+        "center": [-9.367410, 122.213088],  # NTT
+        "zoom": 8,
     },
     "North Sulawesi (Sulut)": {
         "level": "ADM2",
-        "center": [2.113605, 125.381410],   # North Sulawesi
+        "center": [2.651467, 125.414369],   # North Sulawesi
         "zoom": 7,
     },
     "Yogyakarta (DIY)": {
