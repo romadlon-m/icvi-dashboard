@@ -11,7 +11,7 @@ st.title("Indonesia Provincial Boundaries (ADM1)")
 m = folium.Map(location=[-2, 118], zoom_start=5, tiles="cartodbpositron")
 
 # Add province boundaries (ADM1)
-geojson_path = "geoBoundaries-IDN-ADM1_simplified.geojson"
+geojson_path = "data/geoBoundaries-IDN-ADM1_simplified.geojson"
 folium.GeoJson(
     geojson_path,
     name="Provinces",
