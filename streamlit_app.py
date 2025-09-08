@@ -24,8 +24,8 @@ st.subheader("Indonesia Provinces (GAUL) with Earth Engine")
 m = geemap.Map(center=[-2, 118], zoom=4)
 
 # Load GAUL provinces from Earth Engine
-gaul = ee.FeatureCollection("FAO/GAUL/2015/level1")
-indo = gaul.filter(ee.Filter.eq("ADM0_NAME", "Indonesia"))
+gaul = ee.FeatureCollection("projects/sat-io/open-datasets/FAO/GAUL/GAUL_2024_L1")
+indo = gaul.filter(ee.Filter.eq("gaul0_name", "Indonesia"))
 
 # Add to map
 m.addLayer(indo, {}, "Indonesia Provinces")
@@ -34,7 +34,7 @@ m.addLayer(indo, {}, "Indonesia Provinces")
 folium.GeoJson(
     indo,
     name="Indonesia Provinces",
-    tooltip=folium.GeoJsonTooltip(fields=["ADM1_NAME"], aliases=["Province:"])
+    tooltip=folium.GeoJsonTooltip(fields=["gaul1_name"], aliases=["Province:"])
 ).add_to(m)
 
 
