@@ -120,4 +120,35 @@ for feat in gj["features"]:
     feat["properties"]["ICVI_text"] = "No data" if val is None else f"{val:.3f}"
 
 # ---------------- Map ----------------
-m = folium.Map(location
+m = folium.Map(location=[-2, 118], zoom_start=5, tiles="CartoDB positron", control_scale=True)
+inject_css_js_to_kill_focus(m)
+
+# Build a continuous colormap from your palette with fixed vmin/vmax
+colormap = LinearColormap(colors=PALETTE, vmin=ICVI_MIN, vmax=ICVI_MAX)
+colormap.caption = "ICVI (fixed scale 0.15–0.63)"
+colormap.add_to(m)
+
+def style_fn(feature):
+    v = feature["properties"].get("ICVI", None)
+    if v is None:
+        return {"fillColor": "#e5e7eb", "color": "#111827", "weight": 1, "fillOpacity": 0.2}
+    return {"fillColor": colormap(v), "color": "#111827", "weight": 1, "fillOpacity": 0.7}
+
+folium.GeoJson(
+    data=gj,
+    name=f"ICVI {year}",
+    style_function=style_fn,
+    highlight_function=lambda f: {"weight": 2, "color": "#2563eb", "fillOpacity": 0.85},
+    tooltip=folium.GeoJsonTooltip(fields=["shapeName", "ICVI_text"],
+                                  aliases=["Province:", "ICVI:"], sticky=True),
+    popup=folium.GeoJsonPopup(fields=["shapeName", "ICVI_text"],
+                              aliases=["Province:", "ICVI:"], localize=True, labels=True),
+).add_to(m)
+
+folium.LayerControl(collapsed=False).add_to(m)
+st_folium(m, use_container_width=True, height=640)
+
+# Show any name mismatches so you can patch norm_name()
+if missing:
+    with st.expander("Unmatched province names (CSV vs GeoJSON)"):
+        st.write(sorted(set(missing)))
