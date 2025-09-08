@@ -21,9 +21,14 @@ folium.GeoJson(
         "weight": 1,
         "fillOpacity": 0.2,
     },
-    tooltip=folium.GeoJsonTooltip(fields=["shapeName"], aliases=["Province:"]),
-    highlight_function=None  # disables highlight box
+    highlight_function=lambda x: {
+        "weight": 2,
+        "color": "blue",
+        "fillOpacity": 0.4,
+    },
+    tooltip=folium.GeoJsonTooltip(fields=["shapeName"], aliases=["Province:"])
 ).add_to(m)
+
 
 
 
