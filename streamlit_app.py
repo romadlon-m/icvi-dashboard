@@ -35,7 +35,7 @@ REGIONS = {
     "East Nusa Tenggara (NTT)": {
         "level": "ADM2",
         "center": [-9.367410, 122.213088],  # NTT
-        "zoom": 8,
+        "zoom": 7,
     },
     "North Sulawesi (Sulut)": {
         "level": "ADM2",
