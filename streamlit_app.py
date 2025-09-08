@@ -18,7 +18,7 @@ ee.Initialize(scoped_credentials)
 # Streamlit UI
 # ----------------------------------------------------
 st.title("ICVI Dashboard")
-st.subheader("Indonesia Provinces (GAUL) with Earth Engine")
+st.subheader("Interactive dashboard for the Integrated Climate Vulnerability Index (ICVI) in Indonesia (2014–2023)")
 
 # Create a map centered on Indonesia
 m = geemap.Map(center=[-2, 118], zoom=4)
