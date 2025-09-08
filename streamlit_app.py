@@ -21,11 +21,10 @@ folium.GeoJson(
         "weight": 1,
         "fillOpacity": 0.2,
     },
-    # Disable highlight box completely
-    highlight_function=lambda x: {"weight": 0, "color": None},
     tooltip=folium.GeoJsonTooltip(fields=["shapeName"], aliases=["Province:"]),
-    popup=folium.GeoJsonPopup(fields=["shapeName"], aliases=["Province:"])
+    highlight_function=None  # disables highlight box
 ).add_to(m)
+
 
 
 # Add layer control
