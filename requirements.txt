@@ -1,8 +1,4 @@
 streamlit
-pandas
-matplotlib
-plotly
-geopandas
 folium
-st_folium
-geemap
+streamlit-folium
+pandas
