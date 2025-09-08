@@ -18,7 +18,7 @@ st.caption("Explore provincial/regency ICVI by Average or Yearly (2014–2023)."
 # ---------- Paths ----------
 ADM1_GEOJSON = Path("data/geoBoundaries-IDN-ADM1_simplified.geojson")
 ADM2_GEOJSON = Path("data/geoBoundaries-IDN-ADM2_simplified.geojson")
-ICVI_PROV_CSV = Path("data/icvi_results.csv")          # Indonesia (provinces)
+ICVI_PROV_CSV = Path("data/icvi_results.csv")  # Indonesia (provincial)
 ICVI_ADM2 = {
     "East Nusa Tenggara (NTT)": Path("data/NTT_icvi_results.csv"),
     "North Sulawesi (Sulut)":   Path("data/Sulut_icvi_results.csv"),
@@ -31,25 +31,21 @@ REGIONS = {
         "level": "ADM1",
         "center": [-2.0, 118.0],
         "zoom": 5,
-        "shapeGroup": None,
     },
     "East Nusa Tenggara (NTT)": {
         "level": "ADM2",
         "center": [-9.3, 123.7],
         "zoom": 6,
-        "shapeGroup": "Nusa Tenggara Timur",
     },
     "North Sulawesi (Sulut)": {
         "level": "ADM2",
         "center": [1.3, 124.8],
         "zoom": 7,
-        "shapeGroup": "Sulawesi Utara",
     },
     "Yogyakarta (DIY)": {
         "level": "ADM2",
         "center": [-7.8, 110.4],
         "zoom": 8,
-        "shapeGroup": "Daerah Istimewa Yogyakarta",
     },
 }
 
@@ -97,6 +93,7 @@ def detect_name_col(df: pd.DataFrame, level: str) -> str:
     raise ValueError("Could not detect a name column in CSV.")
 
 def norm_name(s: str) -> str:
+    """Normalize names for matching (handles ADM2 'Kabupaten/Kota' prefixes)."""
     if not isinstance(s, str):
         return ""
     n = s.lower().strip()
@@ -111,6 +108,8 @@ def norm_name(s: str) -> str:
         "bangka-belitung islands": "bangka belitung",
         "bangka belitung islands": "bangka belitung",
         "riau islands": "kepulauan riau",
+        "-": " ",
+        "  ": " ",
     }
     for k, v in repl.items():
         n = n.replace(k, v)
@@ -155,27 +154,23 @@ def dynamic_range(values: pd.Series) -> tuple[float, float]:
         return max(0.0, vmin - pad), min(1.0, vmax + pad)
     return vmin, vmax
 
-def filter_adm2_by_province(gj2: dict, shape_group_name: str) -> dict:
-    if shape_group_name is None:
-        return {"type": "FeatureCollection", "features": []}
-    tgt = shape_group_name.strip().lower()
-    feats = []
-    for f in gj2.get("features", []):
-        sg = f.get("properties", {}).get("shapeGroup")
-        if isinstance(sg, str) and sg.strip().lower() == tgt:
-            feats.append(f)
-    return {"type": "FeatureCollection", "features": feats}
-
 def detect_geom_name_key(gj: dict) -> str:
-    # find a property key that holds the feature's name
     if not gj.get("features"):
         return "shapeName"
     props = gj["features"][0].get("properties", {})
     for k in ["shapeName", "NAME_2", "NAME_1", "name", "Name"]:
         if k in props:
             return k
-    # fallback to any key
     return next(iter(props.keys()), "shapeName")
+
+def filter_adm2_by_names(gj2: dict, allowed_names_norm: set[str]) -> dict:
+    """Option A: keep ADM2 features whose shapeName matches names from CSV."""
+    feats = []
+    for f in gj2.get("features", []):
+        nm = f.get("properties", {}).get("shapeName", "")
+        if norm_name(nm) in allowed_names_norm:
+            feats.append(f)
+    return {"type": "FeatureCollection", "features": feats}
 
 # ---------- Load geometry ----------
 if not ADM1_GEOJSON.exists():
@@ -188,11 +183,11 @@ gj_adm2 = load_geojson(ADM2_GEOJSON)
 
 # ---------- Controls ----------
 region = st.selectbox("Region", list(REGIONS.keys()), index=0)  # default: Indonesia
-mode = st.radio("Mode", ["Average", "Yearly"], horizontal=True, index=0)  # Average first & default
+mode = st.radio("Mode", ["Average", "Yearly"], horizontal=True, index=0)  # Average default
 
-# Load data for selected region
-region_meta = REGIONS[region]
-level = region_meta["level"]
+# Load ICVI data for selected region
+meta = REGIONS[region]
+level = meta["level"]
 
 if region == "Indonesia":
     if not ICVI_PROV_CSV.exists():
@@ -206,14 +201,14 @@ else:
 
 name_col = detect_name_col(df, level)
 
-# Year control (only when available & in Yearly mode)
+# Year control only for Yearly mode
 if mode == "Yearly":
     if "year" not in df.columns or df["year"].isna().all():
         st.error("This dataset has no usable 'year' column for Yearly mode."); st.stop()
     years = sorted([int(y) for y in df["year"].dropna().unique()])
     year = st.slider("Year", min_value=min(years), max_value=max(years), value=max(years), step=1)
 
-# Select data by mode
+# Select data for coloring
 if mode == "Yearly":
     source_df = df[df["year"] == year].copy()
     layer_name = f"ICVI {year}"
@@ -221,49 +216,56 @@ else:
     source_df = df.groupby(name_col, as_index=False, dropna=False)["ICVI"].mean()
     layer_name = "ICVI Average"
 
-# Build lookup by normalized name
+# Build lookup by normalized name (for values of the current view)
 source_df[name_col] = source_df[name_col].astype(str)
 icvi_lookup = {norm_name(r[name_col]): float(r["ICVI"]) for _, r in source_df.iterrows() if pd.notna(r["ICVI"])}
 
-# Choose geometry & filter ADM2
+# ---------- Choose & build geometry ----------
 if level == "ADM1":
     gj = gj_adm1
     popup_label = "Province:"
 else:
-    gj = filter_adm2_by_province(gj_adm2, region_meta["shapeGroup"])
+    # Option A: filter ADM2 by *all* regency names present in the region CSV (across years)
+    all_names_norm = {norm_name(x) for x in df[name_col].dropna().astype(str)}
+    gj = filter_adm2_by_names(gj_adm2, all_names_norm)
     popup_label = "Regency/City:"
 
-# Guard: empty geometry after filter
+# Guard: empty geometry
 if not gj.get("features"):
-    st.error("No boundaries found for this region. Check the ADM2 GeoJSON 'shapeGroup' labels.")
+    st.error("No boundaries found for this region. Ensure your ADM2 CSV names match GeoJSON 'shapeName'.")
     st.stop()
 
-# Detect the name key in geometry and guarantee 'displayName' for all features
+# Detect geometry name key & attach displayName + ICVI fields
 geom_name_key = detect_geom_name_key(gj)
+missing_geom = []   # names present in geometry but not in current (view) lookup
+missing_csv  = []   # CSV names not found in geometry (helpful debug)
 
-# Inject ICVI + displayName into geometry
-missing = []
+# Track CSV names against geometry for diagnostics
+geom_names_norm_set = {norm_name(f["properties"].get(geom_name_key, "")) for f in gj["features"]}
+for csv_nm in (source_df[name_col].dropna().astype(str)):
+    if norm_name(csv_nm) not in geom_names_norm_set:
+        missing_csv.append(csv_nm)
+
 for feat in gj["features"]:
     props = feat.setdefault("properties", {})
-    display_name = props.get(geom_name_key) or props.get("shapeName") or props.get("name") or "Unknown"
-    props["displayName"] = display_name
-
-    key = norm_name(display_name)
+    disp = props.get(geom_name_key) or props.get("shapeName") or props.get("name") or "Unknown"
+    props["displayName"] = disp
+    key = norm_name(disp)
     val = icvi_lookup.get(key)
     if val is None or pd.isna(val):
-        missing.append(display_name)
+        missing_geom.append(disp)
         props["ICVI"] = None
         props["ICVI_text"] = "No data"
     else:
         props["ICVI"] = float(val)
         props["ICVI_text"] = f"{val:.3f}"
 
-# Compute dynamic min/max
+# Dynamic color range based on values present on the map
 present_vals = [f["properties"]["ICVI"] for f in gj["features"] if f["properties"].get("ICVI") is not None]
 vmin, vmax = dynamic_range(pd.Series(present_vals))
 
 # ---------- Map ----------
-m = folium.Map(location=region_meta["center"], zoom_start=region_meta["zoom"], tiles=None, control_scale=True)
+m = folium.Map(location=meta["center"], zoom_start=meta["zoom"], tiles=None, control_scale=True)
 inject_css_js_to_kill_focus(m)
 
 # Basemaps (default = Esri WorldGrayCanvas)
@@ -292,7 +294,7 @@ folium.GeoJson(
     style_function=style_fn,
     highlight_function=None,  # click-only UX
     popup=folium.GeoJsonPopup(
-        fields=["displayName", "ICVI_text"],      # <-- guaranteed to exist
+        fields=["displayName", "ICVI_text"],
         aliases=[popup_label, "ICVI:"],
         localize=True,
         labels=True,
@@ -303,8 +305,10 @@ folium.GeoJson(
 folium.LayerControl(collapsed=False).add_to(m)
 st_folium(m, use_container_width=True, height=640)
 
-# diagnostics
-if missing:
-    with st.expander("Unmatched names (CSV vs GeoJSON)"):
-        st.write(sorted(set(missing)))
-        st.caption("Normalize names in your CSV or extend norm_name() if needed.")
+# ---------- Diagnostics ----------
+with st.expander("Name mismatches (helpful if something doesn't color)"):
+    if level == "ADM2":
+        st.write("**CSV names not found in ADM2 geometry:**")
+        st.write(sorted(set(missing_csv)) or "—")
+    st.write("**Geometry names with no ICVI in current view:**")
+    st.write(sorted(set(missing_geom)) or "—")
