@@ -1,27 +1,31 @@
 import streamlit as st
-import geopandas as gpd
-import plotly.express as px
-import json
+import folium
+from streamlit_folium import st_folium
 
-st.title("Check Province Boundaries")
+# Set Streamlit page config
+st.set_page_config(page_title="ICVI Dashboard", layout="wide")
 
-# Load only provinces GeoJSON
-gdf = gpd.read_file("data/geoBoundaries-IDN-ADM1_simplified.geojson")
+st.title("Indonesia Provincial Boundaries (ADM1)")
 
-# Convert to proper GeoJSON
-geojson_data = json.loads(gdf.to_json())
+# Load map
+m = folium.Map(location=[-2, 118], zoom_start=5, tiles="cartodbpositron")
 
-# Choropleth with dummy color (all provinces shown)
-gdf["dummy"] = 1
+# Add province boundaries (ADM1)
+geojson_path = "geoBoundaries-IDN-ADM1_simplified.geojson"
+folium.GeoJson(
+    geojson_path,
+    name="Provinces",
+    style_function=lambda feature: {
+        "fillColor": "lightblue",
+        "color": "black",
+        "weight": 1,
+        "fillOpacity": 0.2,
+    },
+    tooltip=folium.GeoJsonTooltip(fields=["shapeName"], aliases=["Province:"])
+).add_to(m)
 
-fig = px.choropleth(
-    gdf,
-    geojson=geojson_data,
-    locations=gdf.index,
-    color="dummy",
-    hover_name="shapeName",
-    projection="mercator"
-)
+# Add layer control
+folium.LayerControl().add_to(m)
 
-fig.update_geos(fitbounds="locations", visible=False)
-st.plotly_chart(fig, use_container_width=True)
+# Show map in Streamlit
+st_data = st_folium(m, width=900, height=600)
