@@ -75,31 +75,21 @@ def detect_name_col(df: pd.DataFrame, level: str) -> str:
     raise ValueError("Could not detect a name column in CSV.")
 
 def norm_name(s: str) -> str:
-    """Normalize names for matching (handles ADM2 'Kabupaten/Kota' prefixes & spacing)."""
+    """Keep 'kota' to differentiate from regency; don't touch kabupaten names."""
     if not isinstance(s, str):
         return ""
-    n = s.lower().strip()
-    for pref in ["kabupaten ", "kab. ", "kab ", "kota ", "kota adm. ", "kota administrasi "]:
-        if n.startswith(pref):
-            n = n[len(pref):]
-    repl = {
-        " d.i. yogyakarta": " yogyakarta",
-        "daerah istimewa yogyakarta": "yogyakarta",
-        "special region of yogyakarta": "yogyakarta",
-        "dki jakarta": "jakarta",
-        "jakarta capital region": "jakarta",
-        "bangka-belitung islands": "bangka belitung",
-        "bangka belitung islands": "bangka belitung",
-        "riau islands": "kepulauan riau",
-        "-": " ",
-        ".": " ",
-        "  ": " ",
-    }
-    for k, v in repl.items():
-        n = n.replace(k, v)
+    n = s.strip().lower()
+
+    # Standardize 'kota' variants ONLY (do NOT strip 'kota', and do NOT touch 'kabupaten').
+    n = n.replace("kota administrasi ", "kota ")
+    n = n.replace("kota adm. ", "kota ")
+
+    # Light cleanup (spacing/punctuation), but keep words intact.
+    n = n.replace("-", " ").replace(".", " ")
     n = " ".join(n.split())
-    n = "".join(ch for ch in n if ch.isalnum())
+
     return n
+
 
 from branca.element import MacroElement, Template
 def inject_css_js_to_kill_focus(m: folium.Map) -> None:
