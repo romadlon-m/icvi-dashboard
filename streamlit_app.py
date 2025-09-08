@@ -25,7 +25,7 @@ ICVI_ADM2 = {
     "Yogyakarta (DIY)":         Path("data/DIY_icvi_results.csv"),
 }
 
-# ---------- Region metadata ----------
+# ---------- Region metadata (updated centers/zooms) ----------
 REGIONS = {
     "Indonesia": {
         "level": "ADM1",
@@ -34,17 +34,17 @@ REGIONS = {
     },
     "East Nusa Tenggara (NTT)": {
         "level": "ADM2",
-        "center": [-9.3, 123.7],
+        "center": [-8.6, 121.0],  # Kupang / NTT
         "zoom": 6,
     },
     "North Sulawesi (Sulut)": {
         "level": "ADM2",
-        "center": [1.3, 124.8],
+        "center": [1.4, 124.8],   # Manado / North Sulawesi
         "zoom": 7,
     },
     "Yogyakarta (DIY)": {
         "level": "ADM2",
-        "center": [-7.8, 110.4],
+        "center": [-7.8, 110.4],  # Yogyakarta
         "zoom": 8,
     },
 }
@@ -164,7 +164,7 @@ def detect_geom_name_key(gj: dict) -> str:
     return next(iter(props.keys()), "shapeName")
 
 def filter_adm2_by_names(gj2: dict, allowed_names_norm: set[str]) -> dict:
-    """Option A: keep ADM2 features whose shapeName matches names from CSV."""
+    """Keep ADM2 features whose shapeName matches names from CSV (Option A)."""
     feats = []
     for f in gj2.get("features", []):
         nm = f.get("properties", {}).get("shapeName", "")
@@ -216,7 +216,7 @@ else:
     source_df = df.groupby(name_col, as_index=False, dropna=False)["ICVI"].mean()
     layer_name = "ICVI Average"
 
-# Build lookup by normalized name (for values of the current view)
+# Build lookup by normalized name (for current view)
 source_df[name_col] = source_df[name_col].astype(str)
 icvi_lookup = {norm_name(r[name_col]): float(r["ICVI"]) for _, r in source_df.iterrows() if pd.notna(r["ICVI"])}
 
@@ -225,7 +225,7 @@ if level == "ADM1":
     gj = gj_adm1
     popup_label = "Province:"
 else:
-    # Option A: filter ADM2 by *all* regency names present in the region CSV (across years)
+    # Option A: filter ADM2 by all regency names present in the region CSV (across years)
     all_names_norm = {norm_name(x) for x in df[name_col].dropna().astype(str)}
     gj = filter_adm2_by_names(gj_adm2, all_names_norm)
     popup_label = "Regency/City:"
@@ -237,10 +237,9 @@ if not gj.get("features"):
 
 # Detect geometry name key & attach displayName + ICVI fields
 geom_name_key = detect_geom_name_key(gj)
-missing_geom = []   # names present in geometry but not in current (view) lookup
-missing_csv  = []   # CSV names not found in geometry (helpful debug)
+missing_geom = []
+missing_csv  = []
 
-# Track CSV names against geometry for diagnostics
 geom_names_norm_set = {norm_name(f["properties"].get(geom_name_key, "")) for f in gj["features"]}
 for csv_nm in (source_df[name_col].dropna().astype(str)):
     if norm_name(csv_nm) not in geom_names_norm_set:
