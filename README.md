@@ -10,8 +10,7 @@ Built using the FDES–DPSIR framework and implemented with Streamlit for intera
 - Inspect entropy-weighted contributions of each indicator.
 
 ## Live App
-[Try the dashboard here](https://your-app-name.streamlit.app)  
-(Link will be active once deployed on Streamlit Cloud)
+https://icvi-dashboard.streamlit.app/
 
 ## License
 This project is licensed under the MIT License — feel free to use and adapt with attribution.
