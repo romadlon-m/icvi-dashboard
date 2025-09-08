@@ -34,17 +34,17 @@ REGIONS = {
     },
     "East Nusa Tenggara (NTT)": {
         "level": "ADM2",
-        "center": [-8.6, 121.0],  # Kupang / NTT
-        "zoom": 8,
+        "center": [-9.468885, 122.351054],  # NTT
+        "zoom": 7,
     },
     "North Sulawesi (Sulut)": {
         "level": "ADM2",
-        "center": [1.4, 124.8],   # Manado / North Sulawesi
-        "zoom": 9,
+        "center": [2.113605, 125.381410],   # North Sulawesi
+        "zoom": 7,
     },
     "Yogyakarta (DIY)": {
         "level": "ADM2",
-        "center": [-7.8, 110.4],  # Yogyakarta
+        "center": [-7.887551, 110.429646],  # Yogyakarta
         "zoom": 10,
     },
 }
