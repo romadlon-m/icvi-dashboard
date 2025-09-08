@@ -21,25 +21,11 @@ folium.GeoJson(
         "weight": 1,
         "fillOpacity": 0.2,
     },
-    highlight_function=lambda x: {
-        "weight": 2,
-        "color": "blue",
-        "fillOpacity": 0.4,
-    },
-    tooltip=folium.GeoJsonTooltip(fields=["shapeName"], aliases=["Province:"])
+    # Disable highlight box completely
+    highlight_function=lambda x: {"weight": 0, "color": None},
+    tooltip=folium.GeoJsonTooltip(fields=["shapeName"], aliases=["Province:"]),
+    popup=folium.GeoJsonPopup(fields=["shapeName"], aliases=["Province:"])
 ).add_to(m)
-
-# Hide focus outline box on click (Leaflet default behavior)
-st.markdown(
-    """
-    <style>
-    .leaflet-container:focus {
-        outline: none;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
 
 # Add layer control
