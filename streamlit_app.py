@@ -93,7 +93,7 @@ def detect_name_col(df: pd.DataFrame, level: str) -> str:
     raise ValueError("Could not detect a name column in CSV.")
 
 def norm_name(s: str) -> str:
-    """Normalize names for matching (handles ADM2 'Kabupaten/Kota' prefixes)."""
+    """Normalize names for matching (handles ADM2 'Kabupaten/Kota' prefixes & spacing)."""
     if not isinstance(s, str):
         return ""
     n = s.lower().strip()
@@ -101,19 +101,23 @@ def norm_name(s: str) -> str:
         if n.startswith(pref):
             n = n[len(pref):]
     repl = {
-        "dki jakarta": "jakarta",
-        "jakarta capital region": "jakarta",
+        " d.i. yogyakarta": " yogyakarta",
         "daerah istimewa yogyakarta": "yogyakarta",
         "special region of yogyakarta": "yogyakarta",
+        "dki jakarta": "jakarta",
+        "jakarta capital region": "jakarta",
         "bangka-belitung islands": "bangka belitung",
         "bangka belitung islands": "bangka belitung",
         "riau islands": "kepulauan riau",
         "-": " ",
+        ".": " ",
         "  ": " ",
     }
     for k, v in repl.items():
         n = n.replace(k, v)
-    return " ".join(n.split())
+    n = " ".join(n.split())
+    n = "".join(ch for ch in n if ch.isalnum())
+    return n
 
 def inject_css_js_to_kill_focus(m: folium.Map) -> None:
     css = MacroElement()
@@ -164,7 +168,7 @@ def detect_geom_name_key(gj: dict) -> str:
     return next(iter(props.keys()), "shapeName")
 
 def filter_adm2_by_names(gj2: dict, allowed_names_norm: set[str]) -> dict:
-    """Keep ADM2 features whose shapeName matches names from CSV (Option A)."""
+    """Option A: keep ADM2 features whose shapeName matches names from CSV."""
     feats = []
     for f in gj2.get("features", []):
         nm = f.get("properties", {}).get("shapeName", "")
@@ -302,7 +306,15 @@ folium.GeoJson(
 ).add_to(m)
 
 folium.LayerControl(collapsed=False).add_to(m)
-st_folium(m, use_container_width=True, height=640)
+
+# ---------- Render (disable reruns on click) ----------
+st_folium(
+    m,
+    use_container_width=True,
+    height=640,
+    key="mainmap",
+    returned_objects=[],  # <- disables callbacks so clicks won't rerun the app
+)
 
 # ---------- Diagnostics ----------
 with st.expander("Name mismatches (helpful if something doesn't color)"):
