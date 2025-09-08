@@ -10,26 +10,23 @@ from streamlit_folium import st_folium
 from branca.element import MacroElement, Template
 from branca.colormap import LinearColormap
 
-# ---------------- Config ----------------
+# ---------------- Page setup ----------------
 st.set_page_config(page_title="ICVI Dashboard", layout="wide")
 st.title("Indonesia ICVI — Provinces (ADM1)")
 
-ICVI_MIN = 0.15
-ICVI_MAX = 0.63
-
+# ---------------- Paths ----------------
 GEOJSON_PATH = Path("data/geoBoundaries-IDN-ADM1_simplified.geojson")
 ICVI_CSV     = Path("data/icvi_results.csv")
 
-# ---------------- Palette (your function) ----------------
+# ---------------- Palette (Viridis from matplotlib) ----------------
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 
-def set_palette(name="viridis", low=0.15, high=0.80, n=5):
+def set_palette(name="viridis", low=0.0, high=1.0, n=256):
     cmap = cm.get_cmap(name)
     cols = cmap(np.linspace(low, high, n))
     return [mcolors.to_hex(c) for c in cols]
 
-# smooth gradient (256 steps) across full Viridis range
 PALETTE = set_palette("viridis", low=0.0, high=1.0, n=256)
 
 # ---------------- Helpers ----------------
@@ -48,6 +45,7 @@ def load_geojson(path: Path) -> dict:
         return json.load(f)
 
 def norm_name(name: str) -> str:
+    """Harmonize province names between CSV and GeoJSON."""
     if not isinstance(name, str):
         return ""
     n = name.strip().lower()
@@ -63,12 +61,16 @@ def norm_name(name: str) -> str:
     return replacements.get(n, n)
 
 def inject_css_js_to_kill_focus(m: folium.Map) -> None:
+    """Remove the black focus rectangle on click inside the st_folium iframe."""
     css = MacroElement()
     css._template = Template("""
     {% macro html(this, kwargs) %}
     <style>
     .leaflet-interactive:focus,
-    .leaflet-interactive:focus-visible { outline: none !important; outline-offset: 0 !important; }
+    .leaflet-interactive:focus-visible {
+        outline: none !important;
+        outline-offset: 0 !important;
+    }
     </style>
     {% endmacro %}
     """)
@@ -91,6 +93,17 @@ def inject_css_js_to_kill_focus(m: folium.Map) -> None:
     """)
     m.get_root().add_child(js)
 
+def dynamic_range(values: pd.Series) -> tuple[float, float]:
+    """Compute dynamic vmin/vmax from current data, with a small guard if all equal."""
+    vals = pd.to_numeric(values, errors="coerce").dropna()
+    if vals.empty:
+        return 0.0, 1.0
+    vmin, vmax = float(vals.min()), float(vals.max())
+    if np.isclose(vmin, vmax):
+        pad = max(0.001, 0.05 * max(abs(vmax), 1e-6))
+        return max(0.0, vmin - pad), min(1.0, vmax + pad)
+    return vmin, vmax
+
 # ---------------- Load data ----------------
 if not GEOJSON_PATH.exists():
     st.error(f"GeoJSON not found: {GEOJSON_PATH.resolve()}"); st.stop()
@@ -105,50 +118,82 @@ years = sorted(df["year"].unique().tolist())
 year = st.slider("Year", min_value=min(years), max_value=max(years),
                  value=max(years), step=1)
 
-# ---------------- Prepare selected year ----------------
+# ---------------- Prepare data for selected year ----------------
 year_df = df[df["year"] == year].copy()
 icvi_lookup = {norm_name(r["province"]): float(r["ICVI"]) for _, r in year_df.iterrows()}
 
+# Merge ICVI into GeoJSON props; track name mismatches
 missing = []
 for feat in gj["features"]:
     prov = feat["properties"].get("shapeName", "")
     key = norm_name(prov)
     val = icvi_lookup.get(key)
-    if val is None:
+    if val is None or pd.isna(val):
         missing.append(prov)
-    feat["properties"]["ICVI"] = None if val is None else float(val)
-    feat["properties"]["ICVI_text"] = "No data" if val is None else f"{val:.3f}"
+        feat["properties"]["ICVI"] = None
+        feat["properties"]["ICVI_text"] = "No data"
+    else:
+        feat["properties"]["ICVI"] = float(val)
+        feat["properties"]["ICVI_text"] = f"{val:.3f}"
+
+# Compute dynamic min/max from values that are present for this year
+present_vals = [f["properties"]["ICVI"] for f in gj["features"] if f["properties"].get("ICVI") is not None]
+vmin, vmax = dynamic_range(pd.Series(present_vals))
 
 # ---------------- Map ----------------
-m = folium.Map(location=[-2, 118], zoom_start=5, tiles="CartoDB positron", control_scale=True)
+m = folium.Map(location=[-2, 118], zoom_start=5, tiles=None, control_scale=True)
 inject_css_js_to_kill_focus(m)
 
-# Build a continuous colormap from your palette with fixed vmin/vmax
-colormap = LinearColormap(colors=PALETTE, vmin=ICVI_MIN, vmax=ICVI_MAX)
-colormap.caption = "ICVI (fixed scale 0.15–0.63)"
+# Basemaps: Esri World Gray Canvas (base + labels), + a couple alternates
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    attr="Tiles © Esri — Source: Esri, HERE, Garmin, FAO, NOAA, USGS, and others",
+    name="Esri WorldGrayCanvas",
+    control=True,
+).add_to(m)
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
+    attr="Labels © Esri",
+    name="Esri Gray Labels",
+    control=True,
+    overlay=True,
+).add_to(m)
+folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)
+folium.TileLayer("CartoDB dark_matter", name="Dark").add_to(m)
+
+# Colormap (dynamic scale for the selected year)
+colormap = LinearColormap(colors=PALETTE, vmin=vmin, vmax=vmax)
+colormap.caption = f"ICVI — dynamic scale for {year} (min {vmin:.3f}, max {vmax:.3f})"
 colormap.add_to(m)
 
 def style_fn(feature):
     v = feature["properties"].get("ICVI", None)
     if v is None:
-        return {"fillColor": "#e5e7eb", "color": "#111827", "weight": 1, "fillOpacity": 0.2}
-    return {"fillColor": colormap(v), "color": "#111827", "weight": 1, "fillOpacity": 0.7}
+        return {"fillColor": "#e5e7eb", "color": "#111827", "weight": 1, "fillOpacity": 0.25}
+    return {"fillColor": colormap(v), "color": "#111827", "weight": 1, "fillOpacity": 0.75}
 
 folium.GeoJson(
     data=gj,
     name=f"ICVI {year}",
     style_function=style_fn,
-    highlight_function=lambda f: {"weight": 2, "color": "#2563eb", "fillOpacity": 0.85},
-    tooltip=folium.GeoJsonTooltip(fields=["shapeName", "ICVI_text"],
-                                  aliases=["Province:", "ICVI:"], sticky=True),
-    popup=folium.GeoJsonPopup(fields=["shapeName", "ICVI_text"],
-                              aliases=["Province:", "ICVI:"], localize=True, labels=True),
+    highlight_function=None,  # click-only UX (no hover highlight)
+    # Click-only popup (no tooltip)
+    popup=folium.GeoJsonPopup(
+        fields=["shapeName", "ICVI_text"],
+        aliases=["Province:", "ICVI:"],
+        localize=True,
+        labels=True,
+        max_width=320,
+    ),
 ).add_to(m)
 
 folium.LayerControl(collapsed=False).add_to(m)
+
+# Render in Streamlit
 st_folium(m, use_container_width=True, height=640)
 
-# Show any name mismatches so you can patch norm_name()
+# Diagnostics for unmatched names
 if missing:
     with st.expander("Unmatched province names (CSV vs GeoJSON)"):
         st.write(sorted(set(missing)))
+        st.caption("If needed, extend norm_name() to map differing labels.")
