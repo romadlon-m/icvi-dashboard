@@ -33,6 +33,22 @@ REGIONS = {
     "Yogyakarta (DIY)":         {"level": "ADM2", "center": [-7.887551, 110.429646], "zoom": 10},
 }
 
+# ---------- Top drivers (ADM1 only) ----------
+TOP_DRIVERS = {
+    # NTT
+    "east nusa tenggara": "GRDP Agriculture; Population Growth; Population Density.",
+    "nusa tenggara timur": "GRDP Agriculture; Population Growth; Population Density.",
+    # North Sulawesi
+    "north sulawesi": "GRDP Agriculture; Industrial & Service Scale; Population Growth.",
+    "sulawesi utara": "GRDP Agriculture; Industrial & Service Scale; Population Growth.",
+    # DI Yogyakarta (cover common name variants just in case)
+    "daerah istimewa yogyakarta": "Population Density; Economic Capacity; Industrial & Service Scale.",
+    "di yogyakarta": "Population Density; Economic Capacity; Industrial & Service Scale.",
+    "special region of yogyakarta": "Population Density; Economic Capacity; Industrial & Service Scale.",
+    "yogyakarta": "Population Density; Economic Capacity; Industrial & Service Scale.",
+}
+
+
 # ---------- Palette (Viridis via matplotlib) ----------
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
@@ -226,6 +242,10 @@ for feat in gj["features"]:
     else:
         props["ICVI"] = float(val)
         props["ICVI_text"] = f"{val:.3f}"
+    
+    # Add TopDrivers only for ADM1 (Indonesia map)
+    if level == "ADM1":
+        props["TopDrivers"] = TOP_DRIVERS.get(key, "—")
 
 present_vals = [f["properties"]["ICVI"] for f in gj["features"] if f["properties"].get("ICVI") is not None]
 vmin, vmax = dynamic_range(pd.Series(present_vals))
