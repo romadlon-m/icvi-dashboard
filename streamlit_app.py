@@ -276,19 +276,40 @@ def style_fn(feature):
         return {"fillColor": "#e5e7eb", "color": "#111827", "weight": 1, "fillOpacity": 0.25}
     return {"fillColor": colormap(v), "color": "#111827", "weight": 1, "fillOpacity": 0.75}
 
+# Build popup fields / aliases
+popup_fields  = ["displayName", "ICVI_text"]
+popup_aliases = [popup_label, "ICVI:"]
+if level == "ADM1":
+    popup_fields.append("TopDrivers")
+    popup_aliases.append("Top drivers:")
+
 folium.GeoJson(
     data=gj,
     name=layer_name,
     style_function=style_fn,
-    highlight_function=None,  # click-only UX
+    highlight_function=None,
     popup=folium.GeoJsonPopup(
-        fields=["displayName", "ICVI_text"],
-        aliases=[popup_label, "ICVI:"],
+        fields=popup_fields,
+        aliases=popup_aliases,
         localize=True,
         labels=True,
         max_width=320,
     ),
 ).add_to(m)
+
+# folium.GeoJson(
+#     data=gj,
+#     name=layer_name,
+#     style_function=style_fn,
+#     highlight_function=None,  # click-only UX
+#     popup=folium.GeoJsonPopup(
+#         fields=["displayName", "ICVI_text"],
+#         aliases=[popup_label, "ICVI:"],
+#         localize=True,
+#         labels=True,
+#         max_width=320,
+#     ),
+# ).add_to(m)
 
 folium.LayerControl(collapsed=False).add_to(m)
 
