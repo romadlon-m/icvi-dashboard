@@ -50,7 +50,7 @@ TOP_DRIVERS = {
     "yogyakarta": "Population Density; Economic Capacity; Industrial & Service Scale.",
     "kepulauan bangka belitung": "Population Density; GRDP Agriculture; GRDP Mining.",
     "babel": "Population Density; GRDP Agriculture; GRDP Mining.",
-    "Bangka-Belitung Islands": "Population Density; GRDP Agriculture; GRDP Mining.",
+    "bangka-belitung islands": "Population Density; GRDP Agriculture; GRDP Mining.",
 }
 
 
