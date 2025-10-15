@@ -51,6 +51,10 @@ TOP_DRIVERS = {
     "kepulauan bangka belitung": "Population Density; GRDP Agriculture; GRDP Mining.",
     "babel": "Population Density; GRDP Agriculture; GRDP Mining.",
     "bangka-belitung islands": "Population Density; GRDP Agriculture; GRDP Mining.",
+    "Kepulauan Bangka Belitung": "Population Density; GRDP Agriculture; GRDP Mining.",
+    "Babel": "Population Density; GRDP Agriculture; GRDP Mining.",
+    "Bangka Belitung Islands": "Population Density; GRDP Agriculture; GRDP Mining.", 
+    "Bangka-Belitung Islands": "Population Density; GRDP Agriculture; GRDP Mining.",
 }
 
 
