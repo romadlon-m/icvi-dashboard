@@ -23,6 +23,7 @@ ICVI_ADM2 = {
     "East Nusa Tenggara (NTT)": Path("data/NTT_icvi_results.csv"),
     "North Sulawesi (Sulut)":   Path("data/Sulut_icvi_results.csv"),
     "Yogyakarta (DIY)":         Path("data/DIY_icvi_results.csv"),
+    "Kepulauan Bangka Belitung (Babel)": Path("data/Babel_icvi_results.csv"),
 }
 
 # ---------- Region metadata (centers/zooms) ----------
@@ -31,6 +32,7 @@ REGIONS = {
     "East Nusa Tenggara (NTT)": {"level": "ADM2", "center": [-9.367410, 122.213088], "zoom": 7},
     "North Sulawesi (Sulut)":   {"level": "ADM2", "center": [2.651467, 125.414369], "zoom": 7},
     "Yogyakarta (DIY)":         {"level": "ADM2", "center": [-7.887551, 110.429646], "zoom": 10},
+    "Kepulauan Bangka Belitung (Babel)": {"level": "ADM2", "center": [-2.5, 106.4], "zoom": 8},
 }
 
 # ---------- Top drivers (ADM1 only) ----------
@@ -46,6 +48,9 @@ TOP_DRIVERS = {
     "di yogyakarta": "Population Density; Economic Capacity; Industrial & Service Scale.",
     "special region of yogyakarta": "Population Density; Economic Capacity; Industrial & Service Scale.",
     "yogyakarta": "Population Density; Economic Capacity; Industrial & Service Scale.",
+    "kepulauan bangka belitung": "Population Density; GRDP Agriculture; GRDP Mining.",
+    "babel": "Population Density; GRDP Agriculture; GRDP Mining.",
+    "bangke belitung": "Population Density; GRDP Agriculture; GRDP Mining.",
 }
 
 
