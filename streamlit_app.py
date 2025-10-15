@@ -55,6 +55,7 @@ TOP_DRIVERS = {
     "Babel": "Population Density; GRDP Agriculture; GRDP Mining.",
     "Bangka Belitung Islands": "Population Density; GRDP Agriculture; GRDP Mining.", 
     "Bangka-Belitung Islands": "Population Density; GRDP Agriculture; GRDP Mining.",
+    "bangka belitung islands": "Population Density; GRDP Agriculture; GRDP Mining.",
 }
 
 
