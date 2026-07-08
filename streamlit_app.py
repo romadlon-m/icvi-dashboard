@@ -175,7 +175,7 @@ gj_adm2 = load_geojson(ADM2_GEOJSON)
 
 # ---------- Sidebar controls ----------
 with st.sidebar:
-    st.header("Filter Wilayah & Tahun")
+    st.header("Region & Year Filters")
     region = st.selectbox("Region", list(REGIONS.keys()), index=0)
     mode = st.radio("Mode", ["Average", "Yearly"], index=0)
 
@@ -193,7 +193,10 @@ with st.sidebar:
 
     basemap_default = st.selectbox("Basemap", ["Esri Gray Canvas", "OpenStreetMap"], index=0)
     st.divider()
-    st.caption("Data: FDES–DPSIR ICVI, 2014–2023")
+    st.caption(
+        "Cite as: DOI [10.1109/TENCON66050.2025.11375169]"
+        "(https://doi.org/10.1109/TENCON66050.2025.11375169)"
+    )
 
 # ---------- Select data for coloring ----------
 if mode == "Yearly":
@@ -254,7 +257,7 @@ with col_side:
         max_idx = int(np.argmax(vals_arr))
         max_name = [f["properties"]["displayName"] for f in gj["features"]
                     if f["properties"].get("ICVI") is not None][max_idx]
-        st.caption(f"Tertinggi: **{max_name}**")
+        st.caption(f"Highest: **{max_name}**")
     else:
         st.info("No numeric ICVI values for this selection.")
 
