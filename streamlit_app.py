@@ -1,7 +1,6 @@
 # streamlit_app.py
 import json
 from pathlib import Path
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -9,6 +8,8 @@ import folium
 from streamlit_folium import st_folium
 from branca.element import MacroElement, Template
 from branca.colormap import LinearColormap
+import matplotlib as mpl
+import matplotlib.colors as mcolors
 
 # ---------- Page ----------
 st.set_page_config(page_title="ICVI Dashboard", layout="wide")
@@ -36,14 +37,13 @@ REGIONS = {
 }
 
 # ---------- Top drivers (ADM1 only) ----------
+# NOTE: lookup key is always lowercased via norm_name(), so only lowercase
+# entries here are ever matched. Capitalized duplicates were dead code — removed.
 TOP_DRIVERS = {
-    # NTT
     "east nusa tenggara": "GRDP Agriculture; Population Growth; Population Density.",
     "nusa tenggara timur": "GRDP Agriculture; Population Growth; Population Density.",
-    # North Sulawesi
     "north sulawesi": "GRDP Agriculture; Industrial & Service Scale; Population Growth.",
     "sulawesi utara": "GRDP Agriculture; Industrial & Service Scale; Population Growth.",
-    # DI Yogyakarta (cover common name variants just in case)
     "daerah istimewa yogyakarta": "Population Density; Economic Capacity; Industrial & Service Scale.",
     "di yogyakarta": "Population Density; Economic Capacity; Industrial & Service Scale.",
     "special region of yogyakarta": "Population Density; Economic Capacity; Industrial & Service Scale.",
@@ -51,21 +51,17 @@ TOP_DRIVERS = {
     "kepulauan bangka belitung": "Population Density; GRDP Agriculture; GRDP Mining.",
     "babel": "Population Density; GRDP Agriculture; GRDP Mining.",
     "bangka-belitung islands": "Population Density; GRDP Agriculture; GRDP Mining.",
-    "Kepulauan Bangka Belitung": "Population Density; GRDP Agriculture; GRDP Mining.",
-    "Babel": "Population Density; GRDP Agriculture; GRDP Mining.",
-    "Bangka Belitung Islands": "Population Density; GRDP Agriculture; GRDP Mining.", 
-    "Bangka-Belitung Islands": "Population Density; GRDP Agriculture; GRDP Mining.",
     "bangka belitung islands": "Population Density; GRDP Agriculture; GRDP Mining.",
 }
 
-
 # ---------- Palette (Viridis via matplotlib) ----------
-import matplotlib.cm as cm
-import matplotlib.colors as mcolors
+# matplotlib.cm.get_cmap() was removed in matplotlib >=3.9.
+# matplotlib.colormaps[name] works on matplotlib >=3.7, so this is the safe form.
 def set_palette(name="viridis", low=0.0, high=1.0, n=256):
-    cmap = cm.get_cmap(name)
+    cmap = mpl.colormaps[name]
     cols = cmap(np.linspace(low, high, n))
     return [mcolors.to_hex(c) for c in cols]
+
 PALETTE = set_palette("viridis", 0.0, 1.0, 256)
 
 # ---------- Helpers ----------
@@ -88,10 +84,7 @@ def load_geojson(path: Path) -> dict:
         return json.load(f)
 
 def detect_name_col(df: pd.DataFrame, level: str) -> str:
-    if level == "ADM1":
-        candidates = ["province"]
-    else:
-        candidates = ["regency"]
+    candidates = ["province"] if level == "ADM1" else ["regency"]
     for c in candidates:
         if c in df.columns:
             return c
@@ -105,19 +98,12 @@ def norm_name(s: str) -> str:
     if not isinstance(s, str):
         return ""
     n = s.strip().lower()
-
-    # Standardize 'kota' variants ONLY (do NOT strip 'kota', and do NOT touch 'kabupaten').
     n = n.replace("kota administrasi ", "kota ")
     n = n.replace("kota adm. ", "kota ")
-
-    # Light cleanup (spacing/punctuation), but keep words intact.
     n = n.replace("-", " ").replace(".", " ")
     n = " ".join(n.split())
-
     return n
 
-
-from branca.element import MacroElement, Template
 def inject_css_js_to_kill_focus(m: folium.Map) -> None:
     css = MacroElement()
     css._template = Template("""
@@ -129,7 +115,6 @@ def inject_css_js_to_kill_focus(m: folium.Map) -> None:
     {% endmacro %}
     """)
     m.get_root().add_child(css)
-
     js = MacroElement()
     js._template = Template("""
     {% macro script(this, kwargs) %}
@@ -166,8 +151,8 @@ def detect_geom_name_key(gj: dict) -> str:
             return k
     return next(iter(props.keys()), "shapeName")
 
-def filter_adm2_by_names(gj2: dict, allowed_names_norm: set[str]) -> dict:
-    """Option A: keep ADM2 features whose shapeName matches names from CSV."""
+def filter_adm2_by_names(gj2: dict, allowed_names_norm: set) -> dict:
+    """Keep ADM2 features whose shapeName matches names from CSV."""
     feats = []
     for f in gj2.get("features", []):
         nm = f.get("properties", {}).get("shapeName", "")
@@ -176,38 +161,34 @@ def filter_adm2_by_names(gj2: dict, allowed_names_norm: set[str]) -> dict:
     return {"type": "FeatureCollection", "features": feats}
 
 # ---------- Load geometry ----------
-with st.spinner("Loading boundaries..."):
-    if not ADM1_GEOJSON.exists():
-        st.error(f"GeoJSON not found: {ADM1_GEOJSON.resolve()}"); st.stop()
-    if not ADM2_GEOJSON.exists():
-        st.error(f"GeoJSON not found: {ADM2_GEOJSON.resolve()}"); st.stop()
-    gj_adm1 = load_geojson(ADM1_GEOJSON)
-    gj_adm2 = load_geojson(ADM2_GEOJSON)
+if not ADM1_GEOJSON.exists():
+    st.error(f"GeoJSON not found: {ADM1_GEOJSON.resolve()}"); st.stop()
+if not ADM2_GEOJSON.exists():
+    st.error(f"GeoJSON not found: {ADM2_GEOJSON.resolve()}"); st.stop()
+gj_adm1 = load_geojson(ADM1_GEOJSON)
+gj_adm2 = load_geojson(ADM2_GEOJSON)
 
-# ---------- Controls ----------
-region = st.selectbox("Region", list(REGIONS.keys()), index=0)  # default: Indonesia
-mode = st.radio("Mode", ["Average", "Yearly"], horizontal=True, index=0)  # Average default
+# ---------- Sidebar controls ----------
+with st.sidebar:
+    st.header("Controls")
+    region = st.selectbox("Region", list(REGIONS.keys()), index=0)
+    mode = st.radio("Mode", ["Average", "Yearly"], index=0)
 
-# ---------- Load ICVI early so the Year slider can sit right under Mode ----------
-meta  = REGIONS[region]
-level = meta["level"]
-
-with st.spinner("Loading ICVI data..."):
+    meta = REGIONS[region]
+    level = meta["level"]
     df = load_csv(ICVI_PROV_CSV if region == "Indonesia" else ICVI_ADM2[region])
+    name_col = detect_name_col(df, level)
 
-name_col = detect_name_col(df, level)
+    year = None
+    if mode == "Yearly":
+        if "year" not in df.columns or df["year"].isna().all():
+            st.error("This dataset has no usable 'year' column for Yearly mode."); st.stop()
+        years = sorted(int(y) for y in df["year"].dropna().unique())
+        year = st.slider("Year", min_value=min(years), max_value=max(years), value=max(years), step=1)
 
-# ---------- Year slider (immediately after Mode) ----------
-year = None
-if mode == "Yearly":
-    if "year" not in df.columns or df["year"].isna().all():
-        st.error("This dataset has no usable 'year' column for Yearly mode."); st.stop()
-    years = sorted([int(y) for y in df["year"].dropna().unique()])
-    year = st.slider("Year", min_value=min(years), max_value=max(years), value=max(years), step=1)
-
-# ---------- Map placeholder + progress (they come AFTER the slider) ----------
-map_container = st.empty()
-progress = st.progress(0, text="Preparing data...")
+    basemap_default = st.selectbox("Basemap", ["Esri Gray Canvas", "OpenStreetMap"], index=0)
+    st.divider()
+    st.caption("Data: FDES–DPSIR ICVI, 2014–2023")
 
 # ---------- Select data for coloring ----------
 if mode == "Yearly":
@@ -220,8 +201,6 @@ else:
 source_df[name_col] = source_df[name_col].astype(str)
 icvi_lookup = {norm_name(r[name_col]): float(r["ICVI"]) for _, r in source_df.iterrows() if pd.notna(r["ICVI"])}
 
-progress.progress(45, text="Filtering boundaries...")
-
 # ---------- Choose & build geometry ----------
 if level == "ADM1":
     gj = gj_adm1
@@ -232,11 +211,8 @@ else:
     popup_label = "Regency/City:"
 
 if not gj.get("features"):
-    progress.empty()
     st.error("No boundaries found for this region. Ensure your ADM2 CSV names match GeoJSON 'shapeName'.")
     st.stop()
-
-progress.progress(65, text="Styling & coloring...")
 
 # Attach displayName + ICVI fields
 geom_name_key = detect_geom_name_key(gj)
@@ -252,115 +228,93 @@ for feat in gj["features"]:
     else:
         props["ICVI"] = float(val)
         props["ICVI_text"] = f"{val:.3f}"
-    
-    # Add TopDrivers only for ADM1 (Indonesia map)
     if level == "ADM1":
         props["TopDrivers"] = TOP_DRIVERS.get(key, "—")
 
 present_vals = [f["properties"]["ICVI"] for f in gj["features"] if f["properties"].get("ICVI") is not None]
 vmin, vmax = dynamic_range(pd.Series(present_vals))
 
-progress.progress(85, text="Rendering map...")
+# ---------- Summary metrics row ----------
+col_map, col_side = st.columns([3, 1])
+
+with col_side:
+    st.subheader(layer_name)
+    if present_vals:
+        vals_arr = np.array(present_vals)
+        st.metric("Mean ICVI", f"{vals_arr.mean():.3f}")
+        st.metric("Max ICVI", f"{vals_arr.max():.3f}")
+        st.metric("Min ICVI", f"{vals_arr.min():.3f}")
+
+        max_idx = int(np.argmax(vals_arr))
+        max_name = [f["properties"]["displayName"] for f in gj["features"]
+                    if f["properties"].get("ICVI") is not None][max_idx]
+        st.caption(f"Highest vulnerability: **{max_name}**")
+    else:
+        st.info("No numeric ICVI values for this selection.")
+
+    with st.expander("Data table"):
+        st.dataframe(source_df, use_container_width=True, height=240)
+        st.download_button(
+            "Download CSV",
+            data=source_df.to_csv(index=False).encode("utf-8"),
+            file_name=f"icvi_{region.split()[0].lower()}_{layer_name.replace(' ', '_').lower()}.csv",
+            mime="text/csv",
+        )
 
 # ---------- Map ----------
-m = folium.Map(location=meta["center"], zoom_start=meta["zoom"], tiles=None, control_scale=True)
-inject_css_js_to_kill_focus(m)
+with col_map:
+    m = folium.Map(location=meta["center"], zoom_start=meta["zoom"], tiles=None, control_scale=True)
+    inject_css_js_to_kill_focus(m)
 
-# Basemaps (default = Esri WorldGrayCanvas)
-folium.TileLayer("OpenStreetMap", name="OpenStreetMap").add_to(m)  # add first
-folium.TileLayer(
-    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-    attr="Tiles © Esri — Source: Esri, HERE, Garmin, FAO, NOAA, USGS, and others",
-    name="Esri WorldGrayCanvas",
-    control=True,
-).add_to(m)  # active by default
+    esri = folium.TileLayer(
+        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        attr="Tiles © Esri — Source: Esri, HERE, Garmin, FAO, NOAA, USGS, and others",
+        name="Esri WorldGrayCanvas",
+        control=True,
+    )
+    osm = folium.TileLayer("OpenStreetMap", name="OpenStreetMap", control=True)
 
-# Color scale + caption
-colormap = LinearColormap(colors=PALETTE, vmin=vmin, vmax=vmax)
-colormap.caption = "ICVI Score"
-colormap.add_to(m)
+    if basemap_default == "Esri Gray Canvas":
+        esri.add_to(m); osm.add_to(m)
+    else:
+        osm.add_to(m); esri.add_to(m)
 
-def style_fn(feature):
-    v = feature["properties"].get("ICVI", None)
-    if v is None:
-        return {"fillColor": "#e5e7eb", "color": "#111827", "weight": 1, "fillOpacity": 0.25}
-    return {"fillColor": colormap(v), "color": "#111827", "weight": 1, "fillOpacity": 0.75}
+    colormap = LinearColormap(colors=PALETTE, vmin=vmin, vmax=vmax)
+    colormap.caption = "ICVI Score"
+    colormap.add_to(m)
 
-# Build popup fields / aliases
-popup_fields  = ["displayName", "ICVI_text"]
-popup_aliases = [popup_label, "ICVI:"]
-if level == "ADM1":
-    popup_fields.append("TopDrivers")
-    popup_aliases.append("Top drivers:")
+    def style_fn(feature):
+        v = feature["properties"].get("ICVI", None)
+        if v is None:
+            return {"fillColor": "#e5e7eb", "color": "#111827", "weight": 1, "fillOpacity": 0.25}
+        return {"fillColor": colormap(v), "color": "#111827", "weight": 1, "fillOpacity": 0.75}
 
-folium.GeoJson(
-    data=gj,
-    name=layer_name,
-    style_function=style_fn,
-    highlight_function=None,
-    popup=folium.GeoJsonPopup(
-        fields=popup_fields,
-        aliases=popup_aliases,
-        localize=True,
-        labels=True,
-        max_width=320,
-    ),
-).add_to(m)
+    popup_fields  = ["displayName", "ICVI_text"]
+    popup_aliases = [popup_label, "ICVI:"]
+    if level == "ADM1":
+        popup_fields.append("TopDrivers")
+        popup_aliases.append("Top drivers:")
 
-# folium.GeoJson(
-#     data=gj,
-#     name=layer_name,
-#     style_function=style_fn,
-#     highlight_function=None,  # click-only UX
-#     popup=folium.GeoJsonPopup(
-#         fields=["displayName", "ICVI_text"],
-#         aliases=[popup_label, "ICVI:"],
-#         localize=True,
-#         labels=True,
-#         max_width=320,
-#     ),
-# ).add_to(m)
+    folium.GeoJson(
+        data=gj,
+        name=layer_name,
+        style_function=style_fn,
+        highlight_function=None,
+        popup=folium.GeoJsonPopup(
+            fields=popup_fields,
+            aliases=popup_aliases,
+            localize=True,
+            labels=True,
+            max_width=320,
+        ),
+    ).add_to(m)
 
-folium.LayerControl(collapsed=False).add_to(m)
+    folium.LayerControl(collapsed=False).add_to(m)
 
-# ---------- Render (disable reruns on click) ----------
-with map_container.container():
     st_folium(
         m,
         use_container_width=True,
         height=640,
         key="mainmap",
-        returned_objects=[],  # stops callbacks so clicks won't rerun the app
+        returned_objects=[],  # click-only UX, no reruns on interaction
     )
-
-progress.progress(100, text="Done")
-progress.empty()
-
-
-## ---------DEBUG
-# if level == "ADM2":
-#     st.subheader(f"Regency/City list for {region}")
-
-#     # List from CSV
-#     csv_names = sorted(df[name_col].dropna().unique().tolist())
-#     st.markdown("**From CSV:**")
-#     st.write(csv_names)
-
-#     # List from GeoJSON (only the regencies in that province CSV, using your normalizer)
-#     gj_names = [f["properties"].get("shapeName", "") for f in gj_adm2["features"]]
-#     gj_names = sorted(set(gj_names))
-#     st.markdown("**From GeoJSON (all ADM2 features):**")
-#     st.write(gj_names)
-
-#     # Quick matched subset (those in both)
-#     matched = sorted(set(csv_names) & set(gj_names))
-#     st.markdown("**Matched names:**")
-#     st.write(matched)
-
-#     # Unmatched
-#     st.markdown("**CSV not in GeoJSON:**")
-#     st.write(sorted(set(csv_names) - set(gj_names)))
-
-#     st.markdown("**GeoJSON not in CSV:**")
-#     st.write(sorted(set(gj_names) - set(csv_names)))
-
