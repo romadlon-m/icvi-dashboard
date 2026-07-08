@@ -13,8 +13,13 @@ import matplotlib.colors as mcolors
 
 # ---------- Page ----------
 st.set_page_config(page_title="ICVI Dashboard", layout="wide")
-st.title("Indonesia — Integrated Climate Vulnerability Index (ICVI)")
-st.caption("Explore provincial/regency ICVI by Average or Yearly (2014–2023).")
+st.markdown(
+    "#### ICVI — Integrated Climate Vulnerability Index"
+    "&nbsp;&nbsp;·&nbsp;&nbsp;"
+    "<span style='font-size:0.85rem;font-weight:400;color:gray;'>"
+    "Explore provincial/regency ICVI by Average or Yearly (2014–2023)</span>",
+    unsafe_allow_html=True,
+)
 
 # ---------- Paths ----------
 ADM1_GEOJSON = Path("data/geoBoundaries-IDN-ADM1_simplified.geojson")
@@ -170,7 +175,7 @@ gj_adm2 = load_geojson(ADM2_GEOJSON)
 
 # ---------- Sidebar controls ----------
 with st.sidebar:
-    st.header("Controls")
+    st.header("Filter Wilayah & Tahun")
     region = st.selectbox("Region", list(REGIONS.keys()), index=0)
     mode = st.radio("Mode", ["Average", "Yearly"], index=0)
 
@@ -234,32 +239,24 @@ for feat in gj["features"]:
 present_vals = [f["properties"]["ICVI"] for f in gj["features"] if f["properties"].get("ICVI") is not None]
 vmin, vmax = dynamic_range(pd.Series(present_vals))
 
-# ---------- Summary metrics row ----------
+# ---------- Map + summary metrics (fits one 16:9 screen, no scroll) ----------
 col_map, col_side = st.columns([3, 1])
 
 with col_side:
     st.subheader(layer_name)
     if present_vals:
         vals_arr = np.array(present_vals)
-        st.metric("Mean ICVI", f"{vals_arr.mean():.3f}")
-        st.metric("Max ICVI", f"{vals_arr.max():.3f}")
-        st.metric("Min ICVI", f"{vals_arr.min():.3f}")
+        m1, m2 = st.columns(2)
+        m1.metric("Mean", f"{vals_arr.mean():.3f}")
+        m2.metric("Max", f"{vals_arr.max():.3f}")
+        m1.metric("Min", f"{vals_arr.min():.3f}")
 
         max_idx = int(np.argmax(vals_arr))
         max_name = [f["properties"]["displayName"] for f in gj["features"]
                     if f["properties"].get("ICVI") is not None][max_idx]
-        st.caption(f"Highest vulnerability: **{max_name}**")
+        st.caption(f"Tertinggi: **{max_name}**")
     else:
         st.info("No numeric ICVI values for this selection.")
-
-    with st.expander("Data table"):
-        st.dataframe(source_df, use_container_width=True, height=240)
-        st.download_button(
-            "Download CSV",
-            data=source_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"icvi_{region.split()[0].lower()}_{layer_name.replace(' ', '_').lower()}.csv",
-            mime="text/csv",
-        )
 
 # ---------- Map ----------
 with col_map:
@@ -309,12 +306,23 @@ with col_map:
         ),
     ).add_to(m)
 
-    folium.LayerControl(collapsed=False).add_to(m)
+    # collapsed=True + bottomleft: avoids overlapping the colormap legend (top area)
+    folium.LayerControl(collapsed=True, position="bottomleft").add_to(m)
 
     st_folium(
         m,
         use_container_width=True,
-        height=640,
+        height=440,
         key="mainmap",
         returned_objects=[],  # click-only UX, no reruns on interaction
+    )
+
+# ---------- Data table (full width, below map — long columns fit) ----------
+with st.expander("Data table", expanded=False):
+    st.dataframe(source_df, use_container_width=True, height=260)
+    st.download_button(
+        "Download CSV",
+        data=source_df.to_csv(index=False).encode("utf-8"),
+        file_name=f"icvi_{region.split()[0].lower()}_{layer_name.replace(' ', '_').lower()}.csv",
+        mime="text/csv",
     )
